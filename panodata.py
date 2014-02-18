@@ -10,7 +10,7 @@ import shutil
 import os
 import os.path
 
-import yaml
+import json
 
 import gpolyline
 import geographiclib.geodesic
@@ -22,39 +22,11 @@ args = parser.parse_args()
 
 logging.basicConfig(level=logging.DEBUG)
 
-LatLng = collections.namedtuple('LatLng', ['lat', 'lng'])
-LatLng.__str__ = lambda self: "{},{}".format(*self)
-
-
-def latlng_representer(dumper, data):
-    return dumper.represent_sequence(u'!ll', data)
-
-
-def latlng_constructor(loader, node):
-    value = loader.construct_sequence(node)
-    return LatLng(*value)
-
-def LatLngPano(latlng, pano=False):
-    return [latlng[0], latlng[1], pano]
-
-
-yaml.add_representer(LatLng, latlng_representer)
-yaml.add_constructor(u'!ll', latlng_constructor)
-
-
-def dict_representer(dumper, data):
-    return dumper.represent_mapping(yaml.resolver.BaseResolver.DEFAULT_MAPPING_TAG, data.items())
-
-
-def dict_constructor(loader, node):
-    return collections.OrderedDict(loader.construct_pairs(node))
-
-yaml.add_representer(collections.OrderedDict, dict_representer)
-yaml.add_constructor(yaml.resolver.BaseResolver.DEFAULT_MAPPING_TAG, dict_constructor)
+latlng_urlstr = lambda latlng: "{},{}".format(*latlng)
 
 logging.info('Loading file.')
 with open(args.file, 'r') as f:
-    data = yaml.load(f)
+    data = json.load(f, object_pairs_hook=collections.OrderedDict)
 
 try:
     if 'route_response' not in data:
@@ -62,9 +34,9 @@ try:
         data['route_response'] = requests.get(
             'https://maps.googleapis.com/maps/api/directions/json',
             params={
-                'origin': str(data['route_request']['origin']),
-                'destination': str(data['route_request']['origin']),
-                'waypoints': '|'.join(('via:{}'.format(wp) for wp in data['route_request']['waypoints'])),
+                'origin': latlng_urlstr(data['route_request']['origin']),
+                'destination': latlng_urlstr(data['route_request']['origin']),
+                'waypoints': '|'.join(('via:{}'.format(latlng_urlstr(wp)) for wp in data['route_request']['waypoints'])),
                 'sensor': 'false',
                 'key': 'AIzaSyC74vPZz2tYpRuRWY7kZ8iaQ17Xam1-_-A',
             }).json()
@@ -90,7 +62,7 @@ try:
             points_more.append(point)
             prev_point = point
         
-        data['points_pano'] = [LatLngPano(point) for point in points_more]
+        data['points_pano'] = [(point[0], point[1], False) for point in points_more]
         logging.debug((len(points), len(points_more)))
     
     points_no_panos = [(i, point_pano)
@@ -118,7 +90,6 @@ try:
     if points_no_panos:
         logging.info('Fetching pano data.')
         for i, point_pano in points_no_panos:
-            ll = LatLng(point_pano[0], point_pano[1])
             pano_data = requests.get(
                 'http://maps.google.com/cbk',
                 params={
@@ -127,7 +98,7 @@ try:
                     'radius': 2,
                     'cb_client': 'maps_sv',
                     'v': 4,
-                    'll': str(ll),
+                    'll': latlng_urlstr(point_pano),
                     'key': 'AIzaSyC74vPZz2tYpRuRWY7kZ8iaQ17Xam1-_-A',
                 }).json()
             point_pano[2] = True
@@ -195,6 +166,6 @@ except:
 finally:
     pass
     logging.info('Saving file.') 
-    yaml_out = yaml.dump(data)
+    json_out = json.dumps(data, indent=2)
     with open(args.file, 'w') as f:
-        f.write(yaml_out)
+        f.write(json_out)
