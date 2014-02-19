@@ -18,8 +18,8 @@ import geographiclib.geodesic
 geodesic = geographiclib.geodesic.Geodesic.WGS84
 
 parser = argparse.ArgumentParser()
-parser.add_argument('file', action='store',
-                    help='Route file.')
+parser.add_argument('file', action='store', help='Route file.')
+parser.add_argument('--web-file', '-w', action='store', nargs='?', help='JSON web file')
 args = parser.parse_args()
 
 logging.basicConfig(level=logging.DEBUG)
@@ -115,6 +115,8 @@ try:
     logging.info('Fetching pano data.')
 
     while True:
+        if len(panos) >= 500:
+            break
         if last_pano is None:
             for point in points_indexed[last_point[2]:]:
                 logging.debug('Get for ({},{}) {}'.format(*point))
@@ -183,9 +185,6 @@ try:
                 last_point = points_indexed[last_point[2] + 1]
                 last_pano = None
 
-        if len(panos) >= 500:
-            break
-
     last_yaw = 0
     for i, pano in enumerate(panos[:-1]):
         next_pano = panos[i + 1]
@@ -230,3 +229,10 @@ finally:
     yaml_out = yaml.dump(data)
     with open(args.file, 'w') as f:
         f.write(yaml_out)
+
+    if args.web_file:
+        web_data = collections.OrderedDict(
+            pano_points=[(pano['lat'], pano['lng'], pano['i']) for pano in panos]
+        )
+        with open(args.web_file, 'w') as f:
+            json.dump(web_data, f)
