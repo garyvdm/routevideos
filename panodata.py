@@ -92,8 +92,6 @@ try:
     pano_ids = set()
     if 'panos' not in data:
         data['panos'] = []
-    if 'pano_links' not in data:
-        data['pano_links'] = collections.OrderedDict()
 
     if data['panos']:
         def dup_check(pano):
@@ -109,8 +107,6 @@ try:
         last_pano = None
         last_point = points_indexed[0]
     panos = data['panos']
-
-    pano_links = data['pano_links']
 
     logging.info('Fetching pano data.')
 
@@ -174,26 +170,24 @@ try:
                         pano['elv'] = float(location['elevation_wgs84_m'])
                     panos.append(pano)
                     pano_ids.add(location['panoId'])
-                    for link in pano_data['Links']:
-                        if link['panoId'] in pano_ids:
-                            key = '-'.join((link['panoId'], location['panoId']))
-                            pano_links[key] = round((float(link['yawDeg']) + 180) % 360, 2)
-                            has_link = True
                     last_pano = pano
                     logging.info("{description} ({lat},{lng}) {i}".format(**pano))
             else:
                 last_point = points_indexed[last_point[2] + 1]
                 last_pano = None
 
-    last_yaw = 0
+    yaw = 0
     for i, pano in enumerate(panos[:-1]):
         next_pano = panos[i + 1]
         prev_pano = panos[i - 1]
 
         if 'exclued' not in pano:
-            link_key = '-'.join((pano['id'], next_pano['id']))
-            yaw = pano_links.get(link_key, last_yaw)
-            last_yaw = yaw
+            for link in pano['links']:
+                if link['panoId'] == next_pano['id']:
+                    yaw = link['yaw']
+                    break
+            # if not found, it will just use the last yaw
+
             path = 'pano_img/{}-{}.jpeg'.format(pano['id'], yaw)
 
             if not os.path.exists(path):
