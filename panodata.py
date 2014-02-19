@@ -10,6 +10,8 @@ import os
 import os.path
 import json
 
+import yaml
+
 import gpolyline
 import geographiclib.geodesic
 
@@ -26,9 +28,19 @@ logging.getLogger('requests').level = logging.ERROR
 latlng_urlstr = lambda latlng: "{},{}".format(*latlng)
 
 
+def dict_representer(dumper, data):
+    return dumper.represent_mapping(yaml.resolver.BaseResolver.DEFAULT_MAPPING_TAG, data.items())
+
+
+def dict_constructor(loader, node):
+    return collections.OrderedDict(loader.construct_pairs(node))
+
+yaml.add_representer(collections.OrderedDict, dict_representer)
+yaml.add_constructor(yaml.resolver.BaseResolver.DEFAULT_MAPPING_TAG, dict_constructor)
+
 logging.info('Loading file.')
 with open(args.file, 'r') as f:
-    data = json.load(f, object_pairs_hook=collections.OrderedDict)
+    data = yaml.load(f)
 
 try:
     if 'route_response' not in data:
@@ -215,6 +227,6 @@ except:
 finally:
     pass
     logging.info('Saving file.')
-    json_out = json.dumps(data, indent=2)
+    yaml_out = yaml.dump(data)
     with open(args.file, 'w') as f:
-        f.write(json_out)
+        f.write(yaml_out)
