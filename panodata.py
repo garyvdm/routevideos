@@ -67,7 +67,7 @@ try:
     for point in points[1:]:
         gd = geodesic.Inverse(prev_point[0], prev_point[1], point[0], point[1])
         line = geodesic.Line(gd['lat1'], gd['lon1'], gd['azi1'])
-        n_points = int(round(gd['s12'] / 5))
+        n_points = int(round(gd['s12'] / 1))
         for i in range(1, n_points):
             more_point = line.Position(gd['s12'] / n_points * i)
             points_more.append((round(more_point['lat2'], 6), round(more_point['lon2'], 6)))
@@ -124,7 +124,7 @@ try:
                     'http://cbks0.googleapis.com/cbk',
                     params={
                         'output': 'json',
-                        'radius': 3,
+                        'radius': 4,
                         'll': latlng_urlstr(point),
                         'key': 'AIzaSyC74vPZz2tYpRuRWY7kZ8iaQ17Xam1-_-A',
                     }).json()
@@ -158,7 +158,7 @@ try:
             if location['panoId'] not in pano_ids:
                 smallest_dist, closest_point = get_closest_point(pano_lat, pano_lng, last_point)
 
-                if smallest_dist > 3:
+                if smallest_dist > 4:
                     logging.debug("Distance {} to nearest point too great for pano: {}"
                                   .format(smallest_dist, location['panoId']))
                     last_pano = None
@@ -215,11 +215,10 @@ try:
                 with open(path, 'wb') as f:
                     shutil.copyfileobj(img.raw, f)
                 del img
-            sln_path = 'bynum/{:08d}.jpeg'.format(pano['i'])
+            sln_path = 'bynum/{:08d}.jpeg'.format(i)
             if not os.path.exists(sln_path):
                 #os.symlink('../{}'.format(path), sln_path)
                 os.link(path, sln_path)
-
 
 except:
     logging.exception('')
