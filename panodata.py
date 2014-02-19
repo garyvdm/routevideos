@@ -120,7 +120,7 @@ try:
                     'http://cbks0.googleapis.com/cbk',
                     params={
                         'output': 'json',
-                        'radius': 4,
+                        'radius': 3,
                         'll': latlng_urlstr(point),
                         'key': 'AIzaSyC74vPZz2tYpRuRWY7kZ8iaQ17Xam1-_-A',
                     }).json()
@@ -154,7 +154,7 @@ try:
             if location['panoId'] not in pano_ids:
                 smallest_dist, closest_point = get_closest_point(pano_lat, pano_lng, last_point)
 
-                if smallest_dist > 4:
+                if smallest_dist > 6:
                     logging.debug("Distance {} to nearest point too great for pano: {}"
                                   .format(smallest_dist, location['panoId']))
                     last_pano = None
