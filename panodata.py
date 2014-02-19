@@ -107,6 +107,8 @@ try:
         last_pano = None
         last_point = points_indexed[0]
     panos = data['panos']
+    prefered_panos = set(data.get('prefered_panos', []))
+    exculded_panos = set(data.get('exculded_panos', []))
 
     logging.info('Fetching pano data.')
 
@@ -131,9 +133,13 @@ try:
             yaw_to_next = geodesic.Inverse(last_point[0], last_point[1],
                                            next_point[0], next_point[1])['azi1'] % 360
             yaw_diff = lambda item: (abs(item['yaw'] - yaw_to_next)) % 360
-            pano_link = min(last_pano['links'], key=yaw_diff)
+            for pano_link in last_pano['links']:
+                if pano_link['panoId'] in prefered_panos and yaw_diff(pano_link) <= 20:
+                    break
+            else:
+                pano_link = min(last_pano['links'], key=yaw_diff)
 
-            if yaw_diff(pano_link) > 15:
+            if yaw_diff(pano_link) > 20:
                 logging.debug("Yaw too different: {} {} {}".format(yaw_diff(pano_link), pano_link['yaw'], yaw_to_next))
                 last_pano = None
                 pano_data = None
@@ -177,9 +183,10 @@ try:
                 last_pano = None
 
     yaw = 0
-    for i, pano in enumerate(panos[:-1]):
-        next_pano = panos[i + 1]
-        prev_pano = panos[i - 1]
+    filtered_panos = [p for p in panos if p['id'] not in exculded_panos]
+    for i, pano in enumerate(filtered_panos[:-1]):
+        next_pano = filtered_panos[i + 1]
+        prev_pano = filtered_panos[i - 1]
 
         if 'exclued' not in pano:
             for link in pano['links']:
@@ -209,10 +216,12 @@ try:
                 with open(path, 'wb') as f:
                     shutil.copyfileobj(img.raw, f)
                 del img
+            #sln_path = 'bynum/{:08d}-{}.jpeg'.format(pano['i'], pano['id'])
             sln_path = 'bynum/{:08d}.jpeg'.format(i)
             if not os.path.exists(sln_path):
                 #os.symlink('../{}'.format(path), sln_path)
                 os.link(path, sln_path)
+
 
 except:
     logging.exception('')
@@ -223,9 +232,10 @@ finally:
     with open(args.file, 'w') as f:
         f.write(yaml_out)
 
+    filtered_panos = [pano for pano in panos if pano['id'] not in exculded_panos]
+    web_data = collections.OrderedDict(
+        pano_points=[(pano['lat'], pano['lng'], pano['i']) for pano in filtered_panos]
+    )
     if args.web_file:
-        web_data = collections.OrderedDict(
-            pano_points=[(pano['lat'], pano['lng'], pano['i']) for pano in panos]
-        )
         with open(args.web_file, 'w') as f:
             json.dump(web_data, f)
