@@ -85,7 +85,7 @@ try:
             if smallest_dist is None or dist < smallest_dist:
                 smallest_dist = dist
                 closest_point = point
-            if dist > smallest_dist and dist >= 10:
+            if dist > smallest_dist and dist >= 10 and smallest_dist < 10:
                 break
         return (smallest_dist, closest_point)
 
@@ -102,126 +102,141 @@ try:
 
         data['panos'] = [pano for pano in data['panos'] if dup_check(pano)]
         last_pano = data['panos'][-1]
-        smallest_dist, last_point = get_closest_point(last_pano['lat'], last_pano['lng'], points_indexed[0])
+        last_point = points_indexed[last_pano['i']]
     else:
         last_pano = None
         last_point = points_indexed[0]
     panos = data['panos']
-    prefered_panos = set(data.get('prefered_panos', []))
+    prefered_pano_chain = data.get('prefered_pano_chain', {})
     exculded_panos = set(data.get('exculded_panos', []))
 
     logging.info('Fetching pano data.')
 
-    while True:
-        if len(panos) >= 500:
-            break
-        if last_pano is None:
-            for point in points_indexed[last_point[2]:]:
-                logging.debug('Get for ({},{}) {}'.format(*point))
-                pano_data = requests.get(
-                    'http://cbks0.googleapis.com/cbk',
-                    params={
-                        'output': 'json',
-                        'radius': 3,
-                        'll': latlng_urlstr(point),
-                        'key': 'AIzaSyC74vPZz2tYpRuRWY7kZ8iaQ17Xam1-_-A',
-                    }).json()
-                if pano_data:
-                    break
-        else:
-            next_point = points_indexed[last_point[2] + 1]
-            yaw_to_next = geodesic.Inverse(last_point[0], last_point[1],
-                                           next_point[0], next_point[1])['azi1'] % 360
-            yaw_diff = lambda item: (abs(item['yaw'] - yaw_to_next)) % 360
-            for pano_link in last_pano['links']:
-                if pano_link['panoId'] in prefered_panos and yaw_diff(pano_link) <= 20:
-                    break
-            else:
-                pano_link = min(last_pano['links'], key=yaw_diff)
-
-            if yaw_diff(pano_link) > 20:
-                logging.debug("Yaw too different: {} {} {}".format(yaw_diff(pano_link), pano_link['yaw'], yaw_to_next))
-                last_pano = None
-                pano_data = None
-            else:
-                #logging.debug('Get for {}'.format(pano_link['panoId']))
-                pano_data = requests.get(
-                    'http://cbks0.googleapis.com/cbk',
-                    params={
-                        'output': 'json',
-                        'panoid': pano_link['panoId'],
-                        'key': 'AIzaSyC74vPZz2tYpRuRWY7kZ8iaQ17Xam1-_-A',
-                    }).json()
-
-        if pano_data:
-            location = pano_data['Location']
-            pano_lat = float(location['lat'])
-            pano_lng = float(location['lng'])
-            if location['panoId'] not in pano_ids:
-                smallest_dist, closest_point = get_closest_point(pano_lat, pano_lng, last_point)
-
-                if smallest_dist > 6:
-                    logging.debug("Distance {} to nearest point too great for pano: {}"
-                                  .format(smallest_dist, location['panoId']))
-                    last_pano = None
+    try:
+        while True:
+            #if len(panos) >= 500:
+            #    break
+            if last_pano is None:
+                for point in points_indexed[last_point[2]:]:
+                    logging.debug('Get for ({},{}) {}'.format(*point))
+                    pano_data = requests.get(
+                        'http://cbks0.googleapis.com/cbk',
+                        params={
+                            'output': 'json',
+                            'radius': 3,
+                            'll': latlng_urlstr(point),
+                            'key': 'AIzaSyC74vPZz2tYpRuRWY7kZ8iaQ17Xam1-_-A',
+                        }).json()
+                    if pano_data:
+                        break
                 else:
-                    last_point = closest_point
-
-                    links = [collections.OrderedDict(panoId=link['panoId'], yaw=float(link['yawDeg']))
-                             for link in pano_data['Links']]
-                    pano = collections.OrderedDict(
-                        id=location['panoId'], lat=pano_lat, lng=pano_lng,
-                        description=location['description'], links=links, i=last_point[2], )
-                    if 'elevation_wgs84_m' in location:
-                        pano['elv'] = float(location['elevation_wgs84_m'])
-                    panos.append(pano)
-                    pano_ids.add(location['panoId'])
-                    last_pano = pano
-                    logging.info("{description} ({lat},{lng}) {i}".format(**pano))
-            else:
-                last_point = points_indexed[last_point[2] + 1]
-                last_pano = None
-
-    yaw = 0
-    filtered_panos = [p for p in panos if p['id'] not in exculded_panos]
-    for i, pano in enumerate(filtered_panos[:-1]):
-        next_pano = filtered_panos[i + 1]
-        prev_pano = filtered_panos[i - 1]
-
-        if 'exclued' not in pano:
-            for link in pano['links']:
-                if link['panoId'] == next_pano['id']:
-                    yaw = link['yaw']
                     break
-            # if not found, it will just use the last yaw
+            else:
+                if last_pano['id'] in prefered_pano_chain:
+                    link_pano_id = prefered_pano_chain[last_pano['id']]
+                else:
+                    next_point = points_indexed[last_point[2] + 1]
+                    yaw_to_next = geodesic.Inverse(last_point[0], last_point[1],
+                                                   next_point[0], next_point[1])['azi1'] % 360
+                    yaw_diff = lambda item: (abs(item['yaw'] - yaw_to_next)) % 360
+                    pano_link = min(last_pano['links'], key=yaw_diff)
+        
+                    if yaw_diff(pano_link) > 20:
+                        logging.debug("Yaw too different: {} {} {}".format(yaw_diff(pano_link), pano_link['yaw'], yaw_to_next))
+                        link_pano_id = None
+                    else:
+                        link_pano_id = pano_link['panoId']
+        
+                if link_pano_id:
+                    #logging.debug('Get for {}'.format(link_pano_id))
+                    pano_data = requests.get(
+                        'http://cbks0.googleapis.com/cbk',
+                        params={
+                            'output': 'json',
+                            'panoid': link_pano_id,
+                            'key': 'AIzaSyC74vPZz2tYpRuRWY7kZ8iaQ17Xam1-_-A',
+                        }).json()
+                else:
+                    last_pano = None
+                    pano_data = None
+    
+            if pano_data:
+                location = pano_data['Location']
+                pano_lat = float(location['lat'])
+                pano_lng = float(location['lng'])
+                if location['panoId'] not in pano_ids:
+                    smallest_dist, closest_point = get_closest_point(pano_lat, pano_lng, last_point)
+    
+                    if smallest_dist > 10:
+                        logging.debug("Distance {} to nearest point too great for pano: {}"
+                                      .format(smallest_dist, location['panoId']))
+                        last_pano = None
+                    else:
+                        last_point = closest_point
+    
+                        links = [collections.OrderedDict(panoId=link['panoId'], yaw=float(link['yawDeg']))
+                                 for link in pano_data['Links']]
+                        pano = collections.OrderedDict(
+                            id=location['panoId'], lat=pano_lat, lng=pano_lng,
+                            description=location['description'], links=links, i=last_point[2], )
+                        if 'elevation_wgs84_m' in location:
+                            pano['elv'] = float(location['elevation_wgs84_m'])
+                        panos.append(pano)
+                        pano_ids.add(location['panoId'])
+                        last_pano = pano
+                        logging.info("{description} ({lat},{lng}) {i}".format(**pano))
+                else:
+                    last_point = points_indexed[last_point[2] + 1]
+                    last_pano = None
+    except:
+        logging.exception('')
 
-            path = 'pano_img/{}-{}.jpeg'.format(pano['id'], yaw)
+    
+    filtered_panos = [p for p in panos if p['id'] not in exculded_panos]
 
+    logging.info("Calculating yaws")
+    for pano, next_pano in zip(filtered_panos[:-1], filtered_panos[1:]):
+        pano['yaw'] = round(geodesic.Inverse(pano['lat'], pano['lng'], next_pano['lat'], next_pano['lng'])['azi1'] % 360, 4)
+    next_pano['yaw'] = round(geodesic.Inverse(pano['lat'], pano['lng'], next_pano['lat'], next_pano['lng'])['azi2'] % 360, 4)
+    
+    yaw_smooth_range = 4
+    smooth_matrix = [1, 2, 3, 4, 5, 4, 3, 2, 1]
+    matrix_sum = sum(smooth_matrix)
+    product = lambda item: item[0] * item[1]
+    filtered_panos_len = len(filtered_panos)
+    for i in range(filtered_panos_len):
+        smooth_values = [filtered_panos[min(max(j, 0), filtered_panos_len - 1)]['yaw']
+                         for j in range(i - yaw_smooth_range, i + yaw_smooth_range + 1)]
+        filtered_panos[i]['smooth_yaw'] = round(sum(map(product, zip(smooth_values, smooth_matrix))) / matrix_sum, 2)
+
+    try:
+        logging.info("Downloading frames")
+        for i, pano in enumerate(filtered_panos):
+            path = 'pano_img/{}-{}.jpeg'.format(pano['id'], pano['smooth_yaw'])
+    
             if not os.path.exists(path):
-                logging.info('{} {}'.format(path, i))
+                logging.info('{} {} {}'.format(path, i, pano['i']))
                 img = requests.get(
                     'http://maps.googleapis.com/maps/api/streetview',
                     params={
                         'size': '640x480',
                         'pano': pano['id'],
                         'fov': 110,
-                        'heading': yaw,
+                        'heading': pano['smooth_yaw'],
                         'sensor': 'false',
                         'key': 'AIzaSyC74vPZz2tYpRuRWY7kZ8iaQ17Xam1-_-A',
                     },
                     stream=True,
                 )
                 img.raise_for_status()
-
+    
                 with open(path, 'wb') as f:
                     shutil.copyfileobj(img.raw, f)
                 del img
-            #sln_path = 'bynum/{:08d}-{}.jpeg'.format(pano['i'], pano['id'])
-            sln_path = 'bynum/{:08d}.jpeg'.format(i)
-            if not os.path.exists(sln_path):
-                #os.symlink('../{}'.format(path), sln_path)
-                os.link(path, sln_path)
-
+            os.symlink("../" + path, 'bynum/{:05d}.jpeg'.format(i))
+            os.link(path, 'byid/{:05d}-{}-{:06d}.jpeg'.format(pano['i'], pano['id'], i))
+    except:
+        logging.exception('')
 
 except:
     logging.exception('')
@@ -234,7 +249,7 @@ finally:
 
     filtered_panos = [pano for pano in panos if pano['id'] not in exculded_panos]
     web_data = collections.OrderedDict(
-        pano_points=[(pano['lat'], pano['lng'], pano['i']) for pano in filtered_panos]
+        pano_points=[(pano['lat'], pano['lng'], '{} - {}'.format(pano['i'], i)) for i, pano in list(enumerate(filtered_panos))[4800:4900]]
     )
     if args.web_file:
         with open(args.web_file, 'w') as f:
