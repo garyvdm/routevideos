@@ -231,10 +231,13 @@ try:
         
         with open(dir_join('panos.json'), 'w') as f:
             f.write('[\n')
-            for pano in panos:
+            for i, pano in enumerate(panos):
                 f.write('  ')
                 json.dump(pano, f, sort_keys=True)
-                f.write(',\n')
+                if i == len(panos) - 1:
+                    f.write('\n')
+                else:
+                    f.write(',\n')
             f.write(']\n')
         
         point_debug = dict(
@@ -275,7 +278,7 @@ try:
             with open(path, 'wb') as f:
                 shutil.copyfileobj(img.raw, f)
             del img
-        os.symlink("../" + path, dir_join('bynum/{:05d}.jpeg'.format(i)))
+        os.link(path, dir_join('bynum/{:05d}.jpeg'.format(i)))
         os.link(path, dir_join('byid/{:05d}-{}-{:06d}.jpeg'.format(pano['i'], pano['id'], i)))
 
 
