@@ -59,7 +59,7 @@ try:
             'https://maps.googleapis.com/maps/api/directions/json',
             params={
                 'origin': latlng_urlstr(source['route_request']['origin']),
-                'destination': latlng_urlstr(source['route_request']['origin']),
+                'destination': latlng_urlstr(source['route_request']['destination']),
                 'waypoints': waypoints,
                 'sensor': 'false',
                 'key': 'AIzaSyC74vPZz2tYpRuRWY7kZ8iaQ17Xam1-_-A',
