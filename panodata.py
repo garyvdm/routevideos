@@ -212,11 +212,20 @@ try:
         matrix_sum = sum(smooth_matrix)
         product = lambda item: item[0] * item[1]
         filtered_panos_len = len(filtered_panos)
-        for i in range(filtered_panos_len):
-            smooth_values = [filtered_panos[min(max(j, 0), filtered_panos_len - 1)]['yaw']
-                             for j in range(i - yaw_smooth_range, i + yaw_smooth_range + 1)]
-            filtered_panos[i]['smooth_yaw'] = round(sum(map(product, zip(smooth_values, smooth_matrix))) / matrix_sum, 2)
+        def deg_wrap_to_closest(deg, to_deg):
+            up = deg + 360
+            down = deg - 360
+            return min(deg, up, down, key=lambda x: abs(to_deg - x))
         
+        for i in range(filtered_panos_len):
+            this_yaw = filtered_panos[i]['yaw']
+            smooth_values = [deg_wrap_to_closest(filtered_panos[min(max(j, 0), filtered_panos_len - 1)]['yaw'], this_yaw)
+                             for j in range(i - yaw_smooth_range, i + yaw_smooth_range + 1)]
+            filtered_panos[i]['smooth_yaw'] = round((sum(map(product, zip(smooth_values, smooth_matrix))) / matrix_sum) % 360, 2) 
+
+        for pano in filtered_panos:
+            pano['yaw'] = round(pano['yaw'] % 360, 2)
+
     finally:
         logging.info('Saving panos.json')
         
