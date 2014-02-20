@@ -1,32 +1,21 @@
 #!/usr/bin/env python3
 
 import argparse
-import requests
 import collections
+import functools
 import itertools
+import json
 import logging
-import shutil
 import os
 import os.path
-import json
+import requests
+import shutil
 
+import geographiclib.geodesic
+import gpolyline
 import yaml
 
-import gpolyline
-import geographiclib.geodesic
-
 geodesic = geographiclib.geodesic.Geodesic.WGS84
-
-parser = argparse.ArgumentParser()
-parser.add_argument('file', action='store', help='Route file.')
-parser.add_argument('--web-file', '-w', action='store', nargs='?', help='JSON web file')
-args = parser.parse_args()
-
-logging.basicConfig(level=logging.DEBUG)
-logging.getLogger('requests').level = logging.ERROR
-
-latlng_urlstr = lambda latlng: "{},{}".format(*latlng)
-
 
 def dict_representer(dumper, data):
     return dumper.represent_mapping(yaml.resolver.BaseResolver.DEFAULT_MAPPING_TAG, data.items())
@@ -38,26 +27,49 @@ def dict_constructor(loader, node):
 yaml.add_representer(collections.OrderedDict, dict_representer)
 yaml.add_constructor(yaml.resolver.BaseResolver.DEFAULT_MAPPING_TAG, dict_constructor)
 
-logging.info('Loading file.')
-with open(args.file, 'r') as f:
-    data = yaml.load(f)
+
 
 try:
-    if 'route_response' not in data:
-        logging.info('Fetching route.')
-        waypoints = '|'.join(('via:{}'.format(latlng_urlstr(wp)) for wp in data['route_request']['waypoints']))
-        data['route_response'] = requests.get(
+    
+    parser = argparse.ArgumentParser()
+    parser.add_argument('directory', action='store', help='Route directory. This should contain atleast `source.yaml`.')
+    parser.add_argument('--debug', action='store_true', help='Output DEBUG messages.')
+    
+    args = parser.parse_args()
+    dir_join = functools.partial(os.path.join, args.directory)
+    
+    logging.basicConfig(level=logging.DEBUG if args.debug else logging.INFO)
+    logging.getLogger('requests').level = logging.ERROR
+    
+    latlng_urlstr = lambda latlng: "{},{}".format(*latlng)
+    
+    logging.info('Loading source.yaml')
+    with open(dir_join('source.yaml'), 'r') as f:
+        source = yaml.load(f)
+
+
+    if os.path.exists(dir_join('route.json')):
+        logging.info('loading route.json')
+        with open(dir_join('route.json'), 'r') as f:
+            route = json.load(f)
+    else:
+        logging.info('Fetching route')
+        waypoints = '|'.join(('via:{}'.format(latlng_urlstr(wp)) for wp in source['route_request']['waypoints']))
+        route = requests.get(
             'https://maps.googleapis.com/maps/api/directions/json',
             params={
-                'origin': latlng_urlstr(data['route_request']['origin']),
-                'destination': latlng_urlstr(data['route_request']['origin']),
+                'origin': latlng_urlstr(source['route_request']['origin']),
+                'destination': latlng_urlstr(source['route_request']['origin']),
                 'waypoints': waypoints,
                 'sensor': 'false',
                 'key': 'AIzaSyC74vPZz2tYpRuRWY7kZ8iaQ17Xam1-_-A',
             }).json()
+        logging.info('Saving route.json')
+        with open(dir_join('route.json'), 'w') as f:
+            json.dump(route, f, indent=2)
 
-    logging.info('Calculating pano retrival points.')
-    steps = list(itertools.chain(*(leg['steps'] for leg in data['route_response']['routes'][0]['legs'])))
+    logging.info('Calculating additional route points.')
+    steps = list(itertools.chain(*(leg['steps'] for leg in route['routes'][0]['legs'])))
     step_points = (gpolyline.decode(step['polyline']['points']) for step in steps)
     points = list(itertools.chain(*(points if i == 0 else points[1:] for i, points in enumerate(step_points))))
 
@@ -89,168 +101,179 @@ try:
                 break
         return (smallest_dist, closest_point)
 
-    pano_ids = set()
-    if 'panos' not in data:
-        data['panos'] = []
-
-    if data['panos']:
-        def dup_check(pano):
-            if pano['id'] in pano_ids:
-                return False
-            pano_ids.add(pano['id'])
-            return True
-
-        data['panos'] = [pano for pano in data['panos'] if dup_check(pano)]
-        last_pano = data['panos'][-1]
-        last_point = points_indexed[last_pano['i']]
+    if os.path.exists(dir_join('panos.json')):
+        logging.info('loading panos.json')
+        with open(dir_join('panos.json'), 'r') as f:
+            panos = json.load(f)
     else:
-        last_pano = None
-        last_point = points_indexed[0]
-    panos = data['panos']
-    prefered_pano_chain = data.get('prefered_pano_chain', {})
-    exculded_panos = set(data.get('exculded_panos', []))
-
-    logging.info('Fetching pano data.')
-
+        panos = []
+    
     try:
-        while True:
-            #if len(panos) >= 500:
-            #    break
-            if last_pano is None:
-                for point in points_indexed[last_point[2]:]:
-                    logging.debug('Get for ({},{}) {}'.format(*point))
-                    pano_data = requests.get(
-                        'http://cbks0.googleapis.com/cbk',
-                        params={
-                            'output': 'json',
-                            'radius': 3,
-                            'll': latlng_urlstr(point),
-                            'key': 'AIzaSyC74vPZz2tYpRuRWY7kZ8iaQ17Xam1-_-A',
-                        }).json()
-                    if pano_data:
+        pano_ids = set([pano['id'] for pano in panos])
+        prefered_pano_chain = source.get('prefered_pano_chain', {})
+        exculded_panos = set(source.get('exculded_panos', []))
+        
+        try:
+            logging.info('Fetching pano data.')
+            if panos:
+                last_pano = panos[-1]
+                last_point = points_indexed[last_pano['i']]
+            else:
+                last_pano = None
+                last_point = points_indexed[0]
+    
+            while True:
+                #if len(panos) >= 500:
+                #    break
+                if last_pano is None:
+                    for point in points_indexed[last_point[2]:]:
+                        logging.debug('Get for ({},{}) {}'.format(*point))
+                        pano_data = requests.get(
+                            'http://cbks0.googleapis.com/cbk',
+                            params={
+                                'output': 'json',
+                                'radius': 3,
+                                'll': latlng_urlstr(point),
+                                'key': 'AIzaSyC74vPZz2tYpRuRWY7kZ8iaQ17Xam1-_-A',
+                            }).json()
+                        if pano_data:
+                            break
+                    else:
                         break
                 else:
-                    break
-            else:
-                if last_pano['id'] in prefered_pano_chain:
-                    link_pano_id = prefered_pano_chain[last_pano['id']]
-                else:
-                    next_point = points_indexed[last_point[2] + 1]
-                    yaw_to_next = geodesic.Inverse(last_point[0], last_point[1],
-                                                   next_point[0], next_point[1])['azi1'] % 360
-                    yaw_diff = lambda item: (abs(item['yaw'] - yaw_to_next)) % 360
-                    pano_link = min(last_pano['links'], key=yaw_diff)
-        
-                    if yaw_diff(pano_link) > 20:
-                        logging.debug("Yaw too different: {} {} {}".format(yaw_diff(pano_link), pano_link['yaw'], yaw_to_next))
-                        link_pano_id = None
+                    if last_pano['id'] in prefered_pano_chain:
+                        link_pano_id = prefered_pano_chain[last_pano['id']]
                     else:
-                        link_pano_id = pano_link['panoId']
-        
-                if link_pano_id:
-                    #logging.debug('Get for {}'.format(link_pano_id))
-                    pano_data = requests.get(
-                        'http://cbks0.googleapis.com/cbk',
-                        params={
-                            'output': 'json',
-                            'panoid': link_pano_id,
-                            'key': 'AIzaSyC74vPZz2tYpRuRWY7kZ8iaQ17Xam1-_-A',
-                        }).json()
-                else:
-                    last_pano = None
-                    pano_data = None
-    
-            if pano_data:
-                location = pano_data['Location']
-                pano_lat = float(location['lat'])
-                pano_lng = float(location['lng'])
-                if location['panoId'] not in pano_ids:
-                    smallest_dist, closest_point = get_closest_point(pano_lat, pano_lng, last_point)
-    
-                    if smallest_dist > 10:
-                        logging.debug("Distance {} to nearest point too great for pano: {}"
-                                      .format(smallest_dist, location['panoId']))
+                        next_point = points_indexed[last_point[2] + 1]
+                        yaw_to_next = geodesic.Inverse(last_point[0], last_point[1],
+                                                       next_point[0], next_point[1])['azi1'] % 360
+                        yaw_diff = lambda item: (abs(item['yaw'] - yaw_to_next)) % 360
+                        pano_link = min(last_pano['links'], key=yaw_diff)
+            
+                        if yaw_diff(pano_link) > 20:
+                            logging.debug("Yaw too different: {} {} {}".format(yaw_diff(pano_link), pano_link['yaw'], yaw_to_next))
+                            link_pano_id = None
+                        else:
+                            link_pano_id = pano_link['panoId']
+            
+                    if link_pano_id:
+                        #logging.debug('Get for {}'.format(link_pano_id))
+                        pano_data = requests.get(
+                            'http://cbks0.googleapis.com/cbk',
+                            params={
+                                'output': 'json',
+                                'panoid': link_pano_id,
+                                'key': 'AIzaSyC74vPZz2tYpRuRWY7kZ8iaQ17Xam1-_-A',
+                            }).json()
+                    else:
                         last_pano = None
+                        pano_data = None
+        
+                if pano_data:
+                    location = pano_data['Location']
+                    pano_lat = float(location['lat'])
+                    pano_lng = float(location['lng'])
+                    if location['panoId'] not in pano_ids:
+                        smallest_dist, closest_point = get_closest_point(pano_lat, pano_lng, last_point)
+        
+                        if smallest_dist > 10:
+                            logging.debug("Distance {} to nearest point too great for pano: {}"
+                                          .format(smallest_dist, location['panoId']))
+                            last_pano = None
+                        else:
+                            last_point = closest_point
+        
+                            links = [dict(panoId=link['panoId'], yaw=float(link['yawDeg']))
+                                     for link in pano_data['Links']]
+                            pano = dict(
+                                id=location['panoId'], lat=pano_lat, lng=pano_lng,
+                                description=location['description'], links=links, i=last_point[2], )
+                            if 'elevation_wgs84_m' in location:
+                                pano['elv'] = float(location['elevation_wgs84_m'])
+                            panos.append(pano)
+                            pano_ids.add(location['panoId'])
+                            last_pano = pano
+                            logging.info("{description} ({lat},{lng}) {i}".format(**pano))
                     else:
-                        last_point = closest_point
+                        last_point = points_indexed[last_point[2] + 1]
+                        last_pano = None
+        except KeyboardInterrupt:
+            logging.error('KeyboardInterrupt')
+        
+        filtered_panos = [p for p in panos if p['id'] not in exculded_panos]
     
-                        links = [collections.OrderedDict(panoId=link['panoId'], yaw=float(link['yawDeg']))
-                                 for link in pano_data['Links']]
-                        pano = collections.OrderedDict(
-                            id=location['panoId'], lat=pano_lat, lng=pano_lng,
-                            description=location['description'], links=links, i=last_point[2], )
-                        if 'elevation_wgs84_m' in location:
-                            pano['elv'] = float(location['elevation_wgs84_m'])
-                        panos.append(pano)
-                        pano_ids.add(location['panoId'])
-                        last_pano = pano
-                        logging.info("{description} ({lat},{lng}) {i}".format(**pano))
-                else:
-                    last_point = points_indexed[last_point[2] + 1]
-                    last_pano = None
-    except:
-        logging.exception('')
+        logging.info("Calculating yaws")
+        for pano, next_pano in zip(filtered_panos[:-1], filtered_panos[1:]):
+            pano['yaw'] = round(geodesic.Inverse(pano['lat'], pano['lng'], next_pano['lat'], next_pano['lng'])['azi1'] % 360, 4)
+        next_pano['yaw'] = round(geodesic.Inverse(pano['lat'], pano['lng'], next_pano['lat'], next_pano['lng'])['azi2'] % 360, 4)
+        
+        yaw_smooth_range = 4
+        smooth_matrix = [1, 2, 3, 4, 5, 4, 3, 2, 1]
+        matrix_sum = sum(smooth_matrix)
+        product = lambda item: item[0] * item[1]
+        filtered_panos_len = len(filtered_panos)
+        for i in range(filtered_panos_len):
+            smooth_values = [filtered_panos[min(max(j, 0), filtered_panos_len - 1)]['yaw']
+                             for j in range(i - yaw_smooth_range, i + yaw_smooth_range + 1)]
+            filtered_panos[i]['smooth_yaw'] = round(sum(map(product, zip(smooth_values, smooth_matrix))) / matrix_sum, 2)
+        
+    finally:
+        logging.info('Saving panos.json')
+        
+        with open(dir_join('panos.json'), 'w') as f:
+            f.write('[\n')
+            for pano in panos:
+                f.write('  ')
+                json.dump(pano, f, sort_keys=True)
+                f.write(',\n')
+            f.write(']\n')
+        
+        point_debug = dict(
+            pano_points=[(pano['lat'], pano['lng'], '{} - {}'.format(pano['i'], i)) for i, pano in list(enumerate(filtered_panos))[4800:4900]]
+        )
+        logging.info('Saving point_debug.json')
+        with open(dir_join('point_debug.json'), 'w') as f:
+            json.dump(point_debug, f)
+    
+    logging.info("Downloading frames")
+    if os.path.exists(dir_join('bynum')):
+        shutil.rmtree(dir_join('bynum'))
+    os.makedirs(dir_join('bynum'))
+    if os.path.exists(dir_join('byid')):
+        shutil.rmtree(dir_join('byid'))
+    os.makedirs(dir_join('byid'))
+    
+    
+    for i, pano in enumerate(filtered_panos):
+        path = 'pano_img/{}-{}.jpeg'.format(pano['id'], pano['smooth_yaw'])
 
-    
-    filtered_panos = [p for p in panos if p['id'] not in exculded_panos]
+        if not os.path.exists(path):
+            logging.info('{} {} {}'.format(path, i, pano['i']))
+            img = requests.get(
+                'http://maps.googleapis.com/maps/api/streetview',
+                params={
+                    'size': '640x480',
+                    'pano': pano['id'],
+                    'fov': 110,
+                    'heading': pano['smooth_yaw'],
+                    'sensor': 'false',
+                    'key': 'AIzaSyC74vPZz2tYpRuRWY7kZ8iaQ17Xam1-_-A',
+                },
+                stream=True,
+            )
+            img.raise_for_status()
 
-    logging.info("Calculating yaws")
-    for pano, next_pano in zip(filtered_panos[:-1], filtered_panos[1:]):
-        pano['yaw'] = round(geodesic.Inverse(pano['lat'], pano['lng'], next_pano['lat'], next_pano['lng'])['azi1'] % 360, 4)
-    next_pano['yaw'] = round(geodesic.Inverse(pano['lat'], pano['lng'], next_pano['lat'], next_pano['lng'])['azi2'] % 360, 4)
-    
-    yaw_smooth_range = 4
-    smooth_matrix = [1, 2, 3, 4, 5, 4, 3, 2, 1]
-    matrix_sum = sum(smooth_matrix)
-    product = lambda item: item[0] * item[1]
-    filtered_panos_len = len(filtered_panos)
-    for i in range(filtered_panos_len):
-        smooth_values = [filtered_panos[min(max(j, 0), filtered_panos_len - 1)]['yaw']
-                         for j in range(i - yaw_smooth_range, i + yaw_smooth_range + 1)]
-        filtered_panos[i]['smooth_yaw'] = round(sum(map(product, zip(smooth_values, smooth_matrix))) / matrix_sum, 2)
+            with open(path, 'wb') as f:
+                shutil.copyfileobj(img.raw, f)
+            del img
+        os.symlink("../" + path, dir_join('bynum/{:05d}.jpeg'.format(i)))
+        os.link(path, dir_join('byid/{:05d}-{}-{:06d}.jpeg'.format(pano['i'], pano['id'], i)))
 
-    try:
-        logging.info("Downloading frames")
-        for i, pano in enumerate(filtered_panos):
-            path = 'pano_img/{}-{}.jpeg'.format(pano['id'], pano['smooth_yaw'])
-    
-            if not os.path.exists(path):
-                logging.info('{} {} {}'.format(path, i, pano['i']))
-                img = requests.get(
-                    'http://maps.googleapis.com/maps/api/streetview',
-                    params={
-                        'size': '640x480',
-                        'pano': pano['id'],
-                        'fov': 110,
-                        'heading': pano['smooth_yaw'],
-                        'sensor': 'false',
-                        'key': 'AIzaSyC74vPZz2tYpRuRWY7kZ8iaQ17Xam1-_-A',
-                    },
-                    stream=True,
-                )
-                img.raise_for_status()
-    
-                with open(path, 'wb') as f:
-                    shutil.copyfileobj(img.raw, f)
-                del img
-            os.symlink("../" + path, 'bynum/{:05d}.jpeg'.format(i))
-            os.link(path, 'byid/{:05d}-{}-{:06d}.jpeg'.format(pano['i'], pano['id'], i))
-    except:
-        logging.exception('')
 
+except KeyboardInterrupt:
+    logging.error('KeyboardInterrupt')
 except:
     logging.exception('')
-finally:
-    pass
-    logging.info('Saving file.')
-    yaml_out = yaml.dump(data)
-    with open(args.file, 'w') as f:
-        f.write(yaml_out)
 
-    filtered_panos = [pano for pano in panos if pano['id'] not in exculded_panos]
-    web_data = collections.OrderedDict(
-        pano_points=[(pano['lat'], pano['lng'], '{} - {}'.format(pano['i'], i)) for i, pano in list(enumerate(filtered_panos))[4800:4900]]
-    )
-    if args.web_file:
-        with open(args.web_file, 'w') as f:
-            json.dump(web_data, f)
+
+
