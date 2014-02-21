@@ -128,7 +128,7 @@ try:
             if smallest_dist is None or dist < smallest_dist:
                 smallest_dist = dist
                 closest_point = point
-            if dist > smallest_dist and dist >= 10 and smallest_dist < 10:
+            if dist > smallest_dist and dist >= 20 and smallest_dist < 20:
                 break
         return (smallest_dist, closest_point)
 
@@ -176,6 +176,8 @@ try:
                     if last_pano['id'] in prefered_pano_chain:
                         link_pano_id = prefered_pano_chain[last_pano['id']]
                     else:
+                        if last_point[2] == len(points_indexed) -1 :
+                            break
                         next_point = points_indexed[last_point[2] + 1]
                         yaw_to_next = geodesic.Inverse(last_point[0], last_point[1],
                                                        next_point[0], next_point[1])['azi1'] % 360
@@ -208,7 +210,7 @@ try:
                     if location['panoId'] not in pano_ids:
                         smallest_dist, closest_point = get_closest_point(pano_lat, pano_lng, last_point)
         
-                        if smallest_dist > 10:
+                        if smallest_dist > 20:
                             logging.debug("Distance {} to nearest point too great for pano: {}"
                                           .format(smallest_dist, location['panoId']))
                             last_pano = None
