@@ -10,6 +10,7 @@ import os
 import os.path
 import requests
 import shutil
+import signal
 
 import geographiclib.geodesic
 import gpolyline
@@ -28,6 +29,31 @@ yaml.add_representer(collections.OrderedDict, dict_representer)
 yaml.add_constructor(yaml.resolver.BaseResolver.DEFAULT_MAPPING_TAG, dict_constructor)
 
 
+def json_dump_list(l, f):
+    f.write('[\n')
+    for i, item in enumerate(l):
+        f.write('  ')
+        json.dump(item, f, sort_keys=True)
+        if i == len(l) - 1:
+            f.write('\n')
+        else:
+            f.write(',\n')
+    f.write(']\n')
+    
+class DelayedKeyboardInterrupt(object):
+    def __enter__(self):
+        self.signal_received = False
+        self.old_handler = signal.getsignal(signal.SIGINT)
+        signal.signal(signal.SIGINT, self.handler)
+    
+    def handler(self, signal, frame):
+        self.signal_received = (signal, frame)
+        logging.debug('SIGINT received. Delaying KeyboardInterrupt.')
+    
+    def __exit__(self, type, value, traceback):
+        signal.signal(signal.SIGINT, self.old_handler)
+        if self.signal_received:
+            self.old_handler(*self.signal_received)
 
 try:
     
@@ -68,11 +94,16 @@ try:
         with open(dir_join('route.json'), 'w') as f:
             json.dump(route, f, indent=2)
 
-    logging.info('Calculating additional route points.')
     steps = list(itertools.chain(*(leg['steps'] for leg in route['routes'][0]['legs'])))
     step_points = (gpolyline.decode(step['polyline']['points']) for step in steps)
     points = list(itertools.chain(*(points if i == 0 else points[1:] for i, points in enumerate(step_points))))
+    with DelayedKeyboardInterrupt():
+        logging.info('Saving route_points.json')
+        with open(dir_join('route_points.json'), 'w') as f:
+            json_dump_list(points, f)
 
+    ################################################################################################################
+    logging.info('Calculating additional route points.')
     points_more = [points[0]]
     prev_point = points[0]
 
@@ -101,6 +132,7 @@ try:
                 break
         return (smallest_dist, closest_point)
 
+    ################################################################################################################
     if os.path.exists(dir_join('panos.json')):
         logging.info('loading panos.json')
         with open(dir_join('panos.json'), 'r') as f:
@@ -227,25 +259,16 @@ try:
             pano['yaw'] = round(pano['yaw'] % 360, 2)
 
     finally:
-        logging.info('Saving panos.json')
-        
-        with open(dir_join('panos.json'), 'w') as f:
-            f.write('[\n')
-            for i, pano in enumerate(panos):
-                f.write('  ')
-                json.dump(pano, f, sort_keys=True)
-                if i == len(panos) - 1:
-                    f.write('\n')
-                else:
-                    f.write(',\n')
-            f.write(']\n')
-        
-        point_debug = dict(
-            pano_points=[(pano['lat'], pano['lng'], '{} - {}'.format(pano['i'], i)) for i, pano in list(enumerate(filtered_panos))[4800:4900]]
-        )
-        logging.info('Saving point_debug.json')
-        with open(dir_join('point_debug.json'), 'w') as f:
-            json.dump(point_debug, f)
+        with DelayedKeyboardInterrupt():
+            logging.info('Saving panos.json')
+            with open(dir_join('panos.json'), 'w') as f:
+                json_dump_list(panos, f)
+            
+            point_debug = [(pano['lat'], pano['lng'], '{} - {}'.format(pano['i'], i))
+                           for i, pano in list(enumerate(filtered_panos))[6000:]]
+            logging.info('Saving point_debug.json')
+            with open(dir_join('point_debug.json'), 'w') as f:
+                json_dump_list(point_debug, f)
     
     logging.info("Downloading frames")
     if os.path.exists(dir_join('bynum')):
@@ -275,8 +298,9 @@ try:
             )
             img.raise_for_status()
 
-            with open(path, 'wb') as f:
-                shutil.copyfileobj(img.raw, f)
+            with DelayedKeyboardInterrupt():
+                with open(path, 'wb') as f:
+                    shutil.copyfileobj(img.raw, f)
             del img
         os.link(path, dir_join('bynum/{:05d}.jpeg'.format(i)))
         os.link(path, dir_join('byid/{:05d}-{}-{:06d}.jpeg'.format(pano['i'], pano['id'], i)))
