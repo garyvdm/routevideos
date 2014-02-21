@@ -16,6 +16,8 @@ import geographiclib.geodesic
 import gpolyline
 import yaml
 
+import video
+
 geodesic = geographiclib.geodesic.Geodesic.WGS84
 
 def dict_representer(dumper, data):
@@ -234,12 +236,16 @@ try:
         except KeyboardInterrupt:
             logging.error('KeyboardInterrupt')
         
+        ################################################################################################################
         filtered_panos = [p for p in panos if p['id'] not in exculded_panos]
     
         logging.info("Calculating yaws")
         for pano, next_pano in zip(filtered_panos[:-1], filtered_panos[1:]):
-            pano['yaw'] = round(geodesic.Inverse(pano['lat'], pano['lng'], next_pano['lat'], next_pano['lng'])['azi1'] % 360, 4)
-        next_pano['yaw'] = round(geodesic.Inverse(pano['lat'], pano['lng'], next_pano['lat'], next_pano['lng'])['azi2'] % 360, 4)
+            gd = geodesic.Inverse(pano['lat'], pano['lng'], next_pano['lat'], next_pano['lng'])
+            pano['yaw'] = round(gd['azi1'] % 360, 4)
+            pano['dist'] = gd['s12']
+        next_pano['yaw'] = round(gd['azi2'] % 360, 4)
+        next_pano['dist'] = gd['s12']
         
         yaw_smooth_range = 4
         smooth_matrix = [1, 2, 3, 4, 5, 4, 3, 2, 1]
@@ -306,7 +312,12 @@ try:
             del img
         os.link(path, dir_join('bynum/{:05d}.jpeg'.format(i)))
         os.link(path, dir_join('byid/{:05d}-{}-{:06d}.jpeg'.format(pano['i'], pano['id'], i)))
-
+    
+    
+    speed = 100000/(5*60)  # m/s
+    video_items = [(dir_join('bynum/{:05d}.jpeg'.format(i)), pano['dist']/speed)
+                   for i, pano in enumerate(filtered_panos)]
+    video.video(video_items)
 
 except KeyboardInterrupt:
     logging.error('KeyboardInterrupt')
