@@ -70,13 +70,29 @@ function initialize() {
       pitchCell.firstChild.nodeValue = panorama.getPov().pitch + '';
   });
   
-  
-  $.ajax({ url: "Argus2014-web.json",
+  $.ajax({ url: "route-Argus2014/route_points.json",
     dataType: 'json',
     success: function (data) {
-      pano_points = data['pano_points']
-      for (i=0; i<pano_points.length; i++){
-	point = pano_points[i]
+      var path = new Array()
+      for (i=0; i<data.length; i++){
+	point = data[i]
+	path.push(new google.maps.LatLng(point[0], point[1]))
+      }
+      new google.maps.Polyline({
+	  path: path,
+	  geodesic: true,
+	  strokeColor: '#FF0000',
+	  strokeOpacity: 1.0,
+	  strokeWeight: 2
+      }).setMap(map);
+    }
+  });  
+  
+  $.ajax({ url: "route-Argus2014/point_debug.json",
+    dataType: 'json',
+    success: function (data) {
+      for (i=0; i<data.length; i++){
+	point = data[i]
 	var marker = new google.maps.Marker({
 	    position: new google.maps.LatLng(point[0], point[1]),
 	    map: map,
