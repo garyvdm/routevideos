@@ -1,0 +1,125 @@
+<!DOCTYPE html>
+
+<html>
+<head>
+    <title>Route viewer</title>
+    <meta name="viewport" content="initial-scale=1.0, user-scalable=no">
+    <meta charset="utf-8">
+    <script src="https://maps.googleapis.com/maps/api/js?v=3.exp&sensor=false"></script>
+    <script src="http://code.jquery.com/jquery-2.1.0.min.js"></script>
+    <script>
+//$(document).ready(function() {
+//    var $video = $("#video")
+//    var $time =  $('#time')
+//    $video.addEventListener('')
+//    
+//});
+
+function binarySearchClosest(arr, searchElement) {
+
+  var minIndex = 0;
+  var maxIndex = arr.length - 1;
+  var currentIndex;
+  var currentElement;
+
+  while (minIndex <= maxIndex) {
+      currentIndex = (minIndex + maxIndex) / 2 | 0;
+      currentElement = arr[currentIndex][0];
+      nextElement = arr[currentIndex + 1][0]
+      
+      if (searchElement > currentElement && searchElement < nextElement ) {
+          return currentIndex;
+      } else if (currentElement < searchElement) {
+          minIndex = currentIndex + 1;
+      }
+      else if (currentElement > searchElement) {
+          maxIndex = currentIndex - 1;
+      }
+  }
+
+  return -1;
+}
+
+window.onload = function() {
+    route = window.location.hash.slice(1)
+    var video = document.getElementById("video");
+    video.src = 'routes/' + route + '/video.webm'
+    $.ajax({ url: 'routes/' + route + "/web_info.json",
+      dataType: 'json',
+      success: function (data) {
+        document.title = data['title'];
+        var mapOptions = {
+          zoom:12,
+          //mapTypeId: google.maps.MapTypeId.TERRAIN
+          streetViewControl: false
+          
+        };
+        var map = new google.maps.Map(document.getElementById('map-canvas'), mapOptions);
+        var route = data['route_points']
+        var path = new Array()
+        for (i=0; i<route.length; i++){
+          point = route[i]
+          path.push(new google.maps.LatLng(point[0], point[1]))
+        }
+        new google.maps.Polyline({
+            path: path,
+            geodesic: true,
+            strokeColor: '#0000FF',
+            strokeOpacity: 1.0,
+            strokeWeight: 2
+        }).setMap(map);
+        bounds = new google.maps.LatLngBounds(
+            new google.maps.LatLng(data['bounds']['southwest']['lat'], data['bounds']['southwest']['lng']),
+            new google.maps.LatLng(data['bounds']['northeast']['lat'], data['bounds']['northeast']['lng']))
+        map.fitBounds(bounds);
+        console.log(bounds.toString());
+        var video_positions = data['video_points'];
+        // To add the marker to the map, use the 'map' property
+        var marker = new google.maps.Marker({
+            position: new google.maps.LatLng(video_positions[0][2], video_positions[0][3]),
+            map: map,
+        });        
+        video.addEventListener('timeupdate', function(e) {
+            var i
+            if (video.currentTime == 0) 
+                i = 0
+            else
+                i = binarySearchClosest(video_positions, video.currentTime);
+            var item = video_positions[i];
+            point = new google.maps.LatLng(item[2], item[3])
+            marker.setPosition(point);
+            if (!map.getBounds().contains(point)) map.panTo(point);
+        });
+        var $elevation = $('#elevation')
+      }
+    });  
+    
+    
+    
+}
+    </script>
+    <style>
+      html, body {
+        height: 100%;        
+        margin: 0px;
+        padding: 0px
+      }
+      
+      #map-canvas {
+        height: 720px;
+      }
+      
+      #video{
+        width: 960px;
+        float: left;
+      }
+    </style>
+</head>
+
+<body>
+
+<video id="video" width="960" height="720" controls autobuffer></video>
+<div id="map-canvas"></div>
+<div id="elevation"  width="100%" height="100px"></div>
+</body>
+</html>
