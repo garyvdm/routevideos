@@ -39,23 +39,27 @@ def video(items, location):
         
         filename, duration = items[current_i]
         #logging.debug(filename)
-        with open(filename, 'rb') as f:
-            data = f.read()
-        #help(Gst.Buffer)
-        buf = Gst.Buffer.new_wrapped(data)
+        if os.path.exists(filename):
+            with open(filename, 'rb') as f:
+                data = f.read()
+            #help(Gst.Buffer)
+            buf = Gst.Buffer.new_wrapped(data)
+            
+            duration = duration * Gst.SECOND
+            total_time += duration
+            
+            buf.pts = total_time
+            buf.duration = duration
+            src.emit("push-buffer", buf)
         
-        duration = duration * Gst.SECOND
-        total_time += duration
-        
-        buf.pts = total_time
-        buf.duration = duration
-        src.emit("push-buffer", buf)
-    
-        current_i += 1
-        if current_i % 10 == 0:
-            logging.info(current_i)
-        if len(items) - 1 <= current_i :
-            logging.info('Done')
+            current_i += 1
+            if current_i % 10 == 0:
+                logging.info(current_i)
+            if len(items) - 1 <= current_i :
+                logging.info('Done')
+                src.emit("end-of-stream")
+        else:
+            logging.info('No more files - Done')
             src.emit("end-of-stream")
     
     pipeline.get_by_name("src").connect("need-data", src_need_data)
