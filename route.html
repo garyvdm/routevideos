@@ -5,6 +5,19 @@
     <title>Route viewer</title>
     <meta name="viewport" content="initial-scale=1.0, user-scalable=no">
     <meta charset="utf-8">
+<script type="text/javascript">
+
+  var _gaq = _gaq || [];
+  _gaq.push(['_setAccount', 'UA-48509111-1']);
+  _gaq.push(['_trackPageview']);
+
+  (function() {
+    var ga = document.createElement('script'); ga.type = 'text/javascript'; ga.async = true;
+    ga.src = ('https:' == document.location.protocol ? 'https://ssl' : 'http://www') + '.google-analytics.com/ga.js';
+    var s = document.getElementsByTagName('script')[0]; s.parentNode.insertBefore(ga, s);
+  })();
+
+</script>
     <script src="https://maps.googleapis.com/maps/api/js?v=3.exp&sensor=false"></script>
     <script src="http://code.jquery.com/jquery-2.1.0.min.js"></script>
     <script src="http://code.highcharts.com/highcharts.js"></script>
@@ -160,7 +173,7 @@ window.onload = function() {
 
 <body>
 
-<video id="video" width="960" height="720" controls autobuffer></video>
+<video id="video" width="960" height="720" controls autobuffer preload></video>
 <div id="map-canvas"></div>
 <div id="elevation"  width="100%"></div>
 </body>
