@@ -7,13 +7,8 @@
     <meta charset="utf-8">
     <script src="https://maps.googleapis.com/maps/api/js?v=3.exp&sensor=false"></script>
     <script src="http://code.jquery.com/jquery-2.1.0.min.js"></script>
+    <script src="http://code.highcharts.com/highcharts.js"></script>
     <script>
-//$(document).ready(function() {
-//    var $video = $("#video")
-//    var $time =  $('#time')
-//    $video.addEventListener('')
-//    
-//});
 
 function binarySearchClosest(arr, searchElement) {
 
@@ -41,7 +36,7 @@ function binarySearchClosest(arr, searchElement) {
 }
 
 window.onload = function() {
-    route = window.location.hash.slice(1)
+    route = window.location.search.slice(1)
     var video = document.getElementById("video");
     video.src = 'routes/' + route + '/video.webm'
     $.ajax({ url: 'routes/' + route + "/web_info.json",
@@ -78,7 +73,48 @@ window.onload = function() {
         var marker = new google.maps.Marker({
             position: new google.maps.LatLng(video_positions[0][2], video_positions[0][3]),
             map: map,
-        });        
+        });
+        var $elevation = $('#elevation')
+        var elv_data = new Array()
+        for (i=0; i<video_positions.length; i++){
+            p = video_positions[i]
+            elv_data.push([p[1], p[4]]);
+        }
+        var elv_options = {
+            chart: {
+                type: 'line',
+                height: 250
+            },
+            title: {
+                text: 'Elevation',
+                style: {display: 'none'}
+            },
+            legend:{
+                enabled: false
+            },
+            xAxis: {
+                id: 'xAris',
+                type: 'linear',
+                plotLines: [{
+                    id: 'location',
+                    color: 'black',
+                    value: 0,
+                    width: '2' 
+                 }]
+            },
+            yAxis: {
+                title: {text: null},
+                min: 0
+            },
+            series: [{
+                name: 'Elevation',
+                marker: {enabled: false},
+                data: elv_data
+            }]
+        }
+        var $chart = $elevation.highcharts(elv_options);
+        var axis = Highcharts.charts[$chart.data('highchartsChart')].xAxis[0];
+        
         video.addEventListener('timeupdate', function(e) {
             var i
             if (video.currentTime == 0) 
@@ -89,8 +125,15 @@ window.onload = function() {
             point = new google.maps.LatLng(item[2], item[3])
             marker.setPosition(point);
             if (!map.getBounds().contains(point)) map.panTo(point);
+            axis.removePlotLine('location')
+            axis.addPlotLine({
+                    id: 'location',
+                    color: 'black',
+                    value: item[1],
+                    width: '2' 
+                 })
         });
-        var $elevation = $('#elevation')
+
       }
     });  
     
@@ -110,7 +153,6 @@ window.onload = function() {
       }
       
       #video{
-        width: 960px;
         float: left;
       }
     </style>
@@ -120,6 +162,6 @@ window.onload = function() {
 
 <video id="video" width="960" height="720" controls autobuffer></video>
 <div id="map-canvas"></div>
-<div id="elevation"  width="100%" height="100px"></div>
+<div id="elevation"  width="100%"></div>
 </body>
 </html>
