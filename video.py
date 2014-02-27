@@ -11,21 +11,26 @@ logging.basicConfig(level=logging.DEBUG)
 GObject.threads_init()
 Gst.init(None)
 
-def video(items):
+def video(items, location):
     mainloop = GObject.MainLoop()
     
     pipeline = Gst.parse_launch(
-        'appsrc name=src block=true caps="image/jpeg" ! '
+        'appsrc name=src block=true caps="image/jpeg,framerate=30/1" ! '
         'jpegdec ! '
         #'progressreport update-freq=1 ! '
+        'videoconvert ! '
+        #'videorate ! '
         #'timeoverlay text=\"Stream time:\" shaded-background=true ! '
         #'ffmpegcolorspace ! '
-        #'vp8enc threads=2 ! webmmux ! filesink location=test.webm'
-        #'x264enc quantizer=50 ! matroskamux ! filesink location=test.mkv'
-        #'jpegenc ! matroskamux ! filesink name=sink'
-        'autovideosink'
+        'vp8enc end-usage="vbr" target-bitrate=4096000 ! webmmux ! '
+        #'x264enc quantizer=50 ! matroskamux ! '
+        #'jpegenc ! matroskamux ! '
+        #'autovideosink'
+        'filesink name=sink'
     )
     
+    pipeline.get_by_name("sink").set_property("location", location)
+
     current_i = 0
     total_time = 0
     
@@ -33,6 +38,7 @@ def video(items):
         nonlocal current_i, total_time
         
         filename, duration = items[current_i]
+        #logging.debug(filename)
         with open(filename, 'rb') as f:
             data = f.read()
         #help(Gst.Buffer)
@@ -46,6 +52,8 @@ def video(items):
         src.emit("push-buffer", buf)
     
         current_i += 1
+        if current_i % 10 == 0:
+            logging.info(current_i)
         if len(items) - 1 <= current_i :
             logging.info('Done')
             src.emit("end-of-stream")
@@ -72,3 +80,28 @@ def video(items):
     
     pipeline.set_state(Gst.State.PLAYING)
     mainloop.run()
+
+
+if __name__ == '__main__':
+    import logging
+    import argparse
+    import json
+    import functools
+    import os
+    
+    parser = argparse.ArgumentParser()
+    parser.add_argument('directory', action='store', help='Route directory. This should contain `video_items.json`.')
+    parser.add_argument('--debug', action='store_true', help='Output DEBUG messages.')
+    
+    args = parser.parse_args()
+    dir_join = functools.partial(os.path.join, args.directory)
+    
+    logging.basicConfig(level=logging.DEBUG if args.debug else logging.INFO)
+    logging.getLogger('requests').level = logging.ERROR
+    
+    logging.info('video_items.json')
+    with open(dir_join('video_items.json'), 'r') as f:
+        video_items = json.load(f)
+    
+    video(video_items, dir_join('video.webm'))
+

@@ -1,16 +1,18 @@
 #!/usr/bin/env python3
-
 import argparse
+import csv
 import collections
 import functools
 import itertools
 import json
+import math
 import logging
 import os
 import os.path
 import requests
 import shutil
 import signal
+import pprint
 
 import geographiclib.geodesic
 import gpolyline
@@ -30,6 +32,20 @@ def dict_constructor(loader, node):
 yaml.add_representer(collections.OrderedDict, dict_representer)
 yaml.add_constructor(yaml.resolver.BaseResolver.DEFAULT_MAPPING_TAG, dict_constructor)
 
+def xfrange(start, stop=None, step=None):
+    """Like range(), but returns list of floats instead
+
+    All numbers are generated on-demand using generators
+    """
+    if stop is None:
+        stop = float(start)
+        start = 0.0
+    if step is None:
+        step = 1.0
+    cur = float(start)
+    while cur < stop:
+        yield cur
+        cur += step
 
 def json_dump_list(l, f):
     f.write('[\n')
@@ -104,6 +120,7 @@ try:
         with open(dir_join('route_points.json'), 'w') as f:
             json_dump_list(points, f)
 
+
     ################################################################################################################
     logging.info('Calculating additional route points.')
     points_more = [points[0]]
@@ -168,7 +185,7 @@ try:
                                 'output': 'json',
                                 'radius': 3,
                                 'll': latlng_urlstr(point),
-                                'key': 'AIzaSyC74vPZz2tYpRuRWY7kZ8iaQ17Xam1-_-A',
+                                'key': 'AIzaSC74vPZz2tYpRuRWY7kZ8iaQ17Xam1-_-A',
                             }).json()
                         if pano_data:
                             break
@@ -237,34 +254,111 @@ try:
             logging.error('KeyboardInterrupt')
         
         ################################################################################################################
+        
         filtered_panos = [p for p in panos if p['id'] not in exculded_panos]
-    
-        logging.info("Calculating yaws")
+        
+        for i, pano in enumerate(filtered_panos):
+            pano['if'] = i
+        
+        
+        logging.info("Inserting points into the gaps.")
+        
+        panos_with_missing = []
         for pano, next_pano in zip(filtered_panos[:-1], filtered_panos[1:]):
+            panos_with_missing.append(pano)
+            gd = geodesic.Inverse(pano['lat'], pano['lng'], next_pano['lat'], next_pano['lng'])
+            if gd['s12'] > 20:
+                n_points = round((next_pano['i'] - pano['i']) / 10)
+                step = (next_pano['i'] - pano['i']) / n_points
+                for i in [round(i) for i in xfrange(pano['i'] + step, next_pano['i'], step)]:
+                    lat, lng, _ = points_indexed[i]
+                    panos_with_missing.append(dict(lat=lat, lng=lng, i=i))
+                pano['misssing_added'] = n_points
+        panos_with_missing.append(next_pano)
+
+        for pano in panos_with_missing:
+            point = points_indexed[pano['i']]
+            pano['point_lat'], pano['point_lng'] = point[0], point[1]
+
+        panos_without_elevation = [pano for pano in panos_with_missing if 'elv2' not in pano]
+        
+        if panos_without_elevation:
+            logging.info("Fetching elevation")
+            n = 256
+            for i in range(0, len(panos_without_elevation), n):
+                polyline = gpolyline.encode_coords([(pano['point_lat'], pano['point_lng']) for pano in panos_without_elevation[i:i+n]])
+                elevations = requests.get(
+                    'https://maps.googleapis.com/maps/api/elevation/json',
+                    params={
+                        'sensor': 'false',
+                        'key': 'AIzaSyC74vPZz2tYpRuRWY7kZ8iaQ17Xam1-_-A',
+                        'locations':  "enc:{}".format(polyline)
+                    })
+                try:
+                    elevations=elevations.json()
+                except Exception as e:
+                    logging.error("{} {}".format(e, elevations.text))
+                for elv, pano in zip(elevations['results'], panos_without_elevation[i:i+n]):
+                    pano['elv2'] = elv['elevation']
+
+        logging.info("Calculating yaws, yaw_deltas, and grads")
+
+        def deg_wrap_to_closest(deg, to_deg):
+            up = deg + 360
+            down = deg - 360
+            return min(deg, up, down, key=lambda x: abs(to_deg - x))
+        
+        for pano, next_pano in zip(panos_with_missing[:-1], panos_with_missing[1:]):
             gd = geodesic.Inverse(pano['lat'], pano['lng'], next_pano['lat'], next_pano['lng'])
             pano['yaw'] = round(gd['azi1'] % 360, 4)
             pano['dist'] = gd['s12']
         next_pano['yaw'] = round(gd['azi2'] % 360, 4)
         next_pano['dist'] = gd['s12']
         
-        yaw_smooth_range = 4
-        smooth_matrix = [1, 2, 3, 4, 5, 4, 3, 2, 1]
-        matrix_sum = sum(smooth_matrix)
-        product = lambda item: item[0] * item[1]
-        filtered_panos_len = len(filtered_panos)
-        def deg_wrap_to_closest(deg, to_deg):
-            up = deg + 360
-            down = deg - 360
-            return min(deg, up, down, key=lambda x: abs(to_deg - x))
+        def smooth(l, n, z, get_f, set_f):
+            smooth_matrix = list(range(z, n + z)) + list(range(n + z - 1, z - 1, -1))
+            matrix_sum = sum(smooth_matrix)
+            product = lambda item: item[0] * item[1]
+            l_len = len(l)
+            for i in range(l_len):
+                set_item = l[i]
+                smooth_items = (l[min(max(j, 0), l_len - 1)] for j in range(i - n + 1, i + n +1))
+                smooth_values = [get_f(item, set_item) for item in smooth_items]
+                value = sum(map(product, zip(smooth_values, smooth_matrix))) / matrix_sum
+                set_f(set_item, value)
         
-        for i in range(filtered_panos_len):
-            this_yaw = filtered_panos[i]['yaw']
-            smooth_values = [deg_wrap_to_closest(filtered_panos[min(max(j, 0), filtered_panos_len - 1)]['yaw'], this_yaw)
-                             for j in range(i - yaw_smooth_range, i + yaw_smooth_range + 1)]
-            filtered_panos[i]['smooth_yaw'] = round((sum(map(product, zip(smooth_values, smooth_matrix))) / matrix_sum) % 360, 2) 
+        smooth(panos_with_missing, 8, 1,
+               lambda item, set_item: deg_wrap_to_closest(item['yaw'], set_item['yaw']),
+               lambda item, value: item.__setitem__('smooth_yaw', round(value % 360, 2)))
 
-        for pano in filtered_panos:
+        smooth(panos_with_missing, 40, 35,
+               lambda item, set_item: item['elv2'],
+               lambda item, value: item.__setitem__('smooth_elv2', round(value, 2)))
+
+        for pano, next_pano in zip(panos_with_missing[:-1], panos_with_missing[1:]):
+            pano['yaw_delta'] = round(pano['yaw'] - deg_wrap_to_closest(next_pano['yaw'], pano['yaw']), 4)
+            pano['grad'] = round((pano['smooth_elv2'] - next_pano['smooth_elv2'])/pano['dist'] * 4, 4)
+        next_pano['yaw_delta'] = 0
+        next_pano['grad'] = 0
+
+        smooth(panos_with_missing, 20, 10,
+               lambda item, set_item: item['yaw_delta'],
+               lambda item, value: item.__setitem__('smooth_yaw_delta', round(value, 4)))
+        
+        smooth(panos_with_missing, 40, 30,
+               lambda item, set_item: item['grad'],
+               lambda item, value: item.__setitem__('smooth_grad', round(value, 4)))
+        
+        for pano in panos_with_missing:
             pano['yaw'] = round(pano['yaw'] % 360, 2)
+            pano['yaw_delta_factor'] = 0 - pow(abs(pano['smooth_yaw_delta']), 2) / 20
+        
+        smooth(panos_with_missing, 40, 30,
+               lambda item, set_item: item['yaw_delta_factor'],
+               lambda item, value: item.__setitem__('smooth_yaw_delta_factor', round(value, 4)))
+        
+        for pano in panos_with_missing:
+            pano['speed'] = 1 + pano['smooth_yaw_delta_factor'] + pano['smooth_grad']
 
     finally:
         with DelayedKeyboardInterrupt():
@@ -277,6 +371,17 @@ try:
             logging.info('Saving point_debug.json')
             with open(dir_join('point_debug.json'), 'w') as f:
                 json_dump_list(point_debug, f)
+            
+            logging.info('Saving points.csv')
+            with open(dir_join('points.csv'), 'w') as f:
+                w = csv.writer(f)
+                
+                #fields = ['i', 'i', 'id', 'yaw', 'smooth_yaw', 'dist', 'elv', 'smooth_elv2', 'smooth_grad', 'smooth_yaw_delta']
+                #fields = ['i', 'i', 'smooth_yaw', 'smooth_yaw_delta', 'smooth_yaw_delta_factor']
+                fields = ['i', 'i', 'smooth_yaw_delta', 'smooth_elv2', 'speed']
+                w.writerow(fields)
+                for i, pano in enumerate(filtered_panos):
+                    w.writerow([i] + [pano.get(field, '') for field in fields[1:]])
     
     logging.info("Downloading frames")
     if os.path.exists(dir_join('bynum')):
@@ -287,11 +392,11 @@ try:
     os.makedirs(dir_join('byid'))
     
     
-    for i, pano in enumerate(filtered_panos):
+    for pano in filtered_panos:
         path = 'pano_img/{}-{}.jpeg'.format(pano['id'], pano['smooth_yaw'])
 
         if not os.path.exists(path):
-            logging.info('{} {} {}'.format(path, i, pano['i']))
+            logging.info('{} {} {}'.format(path, pano['if'], pano['i']))
             img = requests.get(
                 'http://maps.googleapis.com/maps/api/streetview',
                 params={
@@ -310,15 +415,60 @@ try:
                 with open(path, 'wb') as f:
                     shutil.copyfileobj(img.raw, f)
             del img
-        os.link(path, dir_join('bynum/{:05d}.jpeg'.format(i)))
-        os.link(path, dir_join('byid/{:05d}-{}-{:06d}.jpeg'.format(pano['i'], pano['id'], i)))
+        os.link(path, dir_join('bynum/{:05d}.jpeg'.format(pano['if'])))
+        os.link(path, dir_join('byid/{:05d}-{}-{:06d}.jpeg'.format(pano['i'], pano['id'], pano['if'])))
     
     
-    speed = 100000/(5*60)  # m/s
-    video_items = [(dir_join('bynum/{:05d}.jpeg'.format(i)), pano['dist']/speed)
-                   for i, pano in enumerate(filtered_panos)]
-    video.video(video_items)
-
+    base_speed = 100000/(10*60)  # m/s
+    video_items = []
+    prev_add_points = []
+    i = 0
+    #import pudb; pudb.set_trace()
+    
+    while i < len(panos_with_missing):
+        pano = panos_with_missing[i]
+        add_points = []
+        while i < len(panos_with_missing) - 1 and 'id' not in panos_with_missing[i + 1]:
+            i += 1
+            add_points.append(panos_with_missing[i])
+        all_points = prev_add_points[round(len(prev_add_points) / 2):] + [pano] + add_points[:round(len(add_points) / 2)]
+        time = sum((point['dist']/(base_speed * point['speed']) for point in all_points))
+        video_items.append((dir_join('bynum/{:05d}.jpeg'.format(pano['if'])), time))
+        i += 1
+        prev_add_points = add_points
+    #video_items = [(dir_join('bynum/{:05d}.jpeg'.format(i)), pano['dist']/(base_speed * pano['speed']))
+    #               for i, pano in enumerate(filtered_panos)]
+    #video.video(video_items)
+    logging.info('Saving video_items.json')
+    with open(dir_join('video_items.json'), 'w') as f:
+        json_dump_list(video_items, f)
+    
+    
+    video_positions = []
+    video_time = 0
+    dist = 0
+    for i, point in enumerate(panos_with_missing):
+        if i % 10 == 0 :
+            video_positions.append((round(video_time, 2), dist, point['lat'], point['lng'], point['smooth_elv2']))
+        video_time += point['dist']/(base_speed * point['speed'])
+        dist += point['dist']
+    logging.info('Saving video_positions.json')
+    with open(dir_join('video_positions.json'), 'w') as f:
+        json_dump_list(video_positions, f)
+    
+    web_info = dict(
+        title =  source['title'],
+        bounds = route['routes'][0]['bounds'],
+        max_elv = max(panos_with_missing, key=lambda point: point['smooth_elv2'])['smooth_elv2'] + 10,
+        #min_elv = max(panos_with_missing, key=lambda point: point['smooth_elv2'])['smooth_elv2'] - 10,
+        min_elv = 0,
+        route_points = points,
+        video_points = video_positions,
+    )
+    logging.info('Saving web_info.json')
+    with open(dir_join('web_info.json'), 'w') as f:
+        json.dump(web_info, f)
+    
 except KeyboardInterrupt:
     logging.error('KeyboardInterrupt')
 except:

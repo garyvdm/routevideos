@@ -21,7 +21,7 @@ def encode_coords(coords):
     prev_lat = 0
     prev_lng = 0
 
-    for x, y in coords:
+    for y, x in coords:
         lat, lng = int(y * 1e5), int(x * 1e5)
 
         d_lat = _encode_value(lat - prev_lat)
