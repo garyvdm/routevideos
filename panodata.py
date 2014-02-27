@@ -255,7 +255,8 @@ try:
         
         ################################################################################################################
         
-        filtered_panos = [p for p in panos if p['id'] not in exculded_panos]
+        filtered_panos = [p for i, p in enumerate(panos)
+                          if p['id'] not in exculded_panos and (i == 0 or not p['i'] == panos[i-1]['i']) ]
         
         for i, pano in enumerate(filtered_panos):
             pano['if'] = i
@@ -263,24 +264,29 @@ try:
         
         logging.info("Inserting points into the gaps.")
         
+        for pano in filtered_panos:
+            point = points_indexed[pano['i']]
+            pano['point_lat'], pano['point_lng'] = point[0], point[1]
+        
         panos_with_missing = []
         for pano, next_pano in zip(filtered_panos[:-1], filtered_panos[1:]):
             panos_with_missing.append(pano)
-            gd = geodesic.Inverse(pano['lat'], pano['lng'], next_pano['lat'], next_pano['lng'])
+            gd = geodesic.Inverse(pano['point_lat'], pano['point_lng'], next_pano['point_lat'], next_pano['point_lng'])
             if gd['s12'] > 20:
                 n_points = round((next_pano['i'] - pano['i']) / 10)
                 step = (next_pano['i'] - pano['i']) / n_points
-                for i in [round(i) for i in xfrange(pano['i'] + step, next_pano['i'], step)]:
+                for i in [round(i) for i in xfrange(pano['i'] + step, next_pano['i'] - 1, step)]:
                     lat, lng, _ = points_indexed[i]
-                    panos_with_missing.append(dict(lat=lat, lng=lng, i=i))
-                pano['misssing_added'] = n_points
+                    panos_with_missing.append(dict(lat=lat, lng=lng, i=i, point_lat=lat, point_lng=lng))
+                pano['misssing_added'] = n_points - 1
+            else:
+                pano['misssing_added'] = 0
+        next_pano['misssing_added'] = 0
         panos_with_missing.append(next_pano)
 
-        for pano in panos_with_missing:
-            point = points_indexed[pano['i']]
-            pano['point_lat'], pano['point_lng'] = point[0], point[1]
 
         panos_without_elevation = [pano for pano in panos_with_missing if 'elv2' not in pano]
+        #panos_without_elevation = panos_with_missing
         
         if panos_without_elevation:
             logging.info("Fetching elevation")
@@ -308,8 +314,9 @@ try:
             down = deg - 360
             return min(deg, up, down, key=lambda x: abs(to_deg - x))
         
+        #import pudb; pudb.set_trace()
         for pano, next_pano in zip(panos_with_missing[:-1], panos_with_missing[1:]):
-            gd = geodesic.Inverse(pano['lat'], pano['lng'], next_pano['lat'], next_pano['lng'])
+            gd = geodesic.Inverse(pano['point_lat'], pano['point_lng'], next_pano['point_lat'], next_pano['point_lng'])
             pano['yaw'] = round(gd['azi1'] % 360, 4)
             pano['dist'] = gd['s12']
         next_pano['yaw'] = round(gd['azi2'] % 360, 4)
@@ -327,7 +334,7 @@ try:
                 value = sum(map(product, zip(smooth_values, smooth_matrix))) / matrix_sum
                 set_f(set_item, value)
         
-        smooth(panos_with_missing, 8, 1,
+        smooth(panos_with_missing, 8, 6,
                lambda item, set_item: deg_wrap_to_closest(item['yaw'], set_item['yaw']),
                lambda item, value: item.__setitem__('smooth_yaw', round(value % 360, 2)))
 
@@ -360,6 +367,58 @@ try:
         for pano in panos_with_missing:
             pano['speed'] = 1 + pano['smooth_yaw_delta_factor'] + pano['smooth_grad']
 
+        base_speed = 100000/(10*60)  # m/s
+        video_items = []
+        #prev_add_points = []
+        #i = 0
+        #while i < len(panos_with_missing):
+        #    pano = panos_with_missing[i]
+        #    add_points = []
+        #    while i < len(panos_with_missing) - 1 and 'id' not in panos_with_missing[i + 1]:
+        #        i += 1
+        #        add_points.append(panos_with_missing[i])
+        #    all_points = prev_add_points[round(len(prev_add_points) / 2):] + [pano] + add_points[:round(len(add_points) / 2)]
+        #    time = sum((point['dist']/(base_speed * point['speed']) for point in all_points))
+        #    video_items.append((dir_join('bynum/{:05d}.jpeg'.format(pano['if'])), time))
+        #    i += 1
+        #    prev_add_points = add_points
+        
+        #import pudb; pudb.set_trace()
+        
+
+        i = 0
+        while i < len(panos_with_missing):
+            pano = panos_with_missing[i]
+            add_points = panos_with_missing[i : i + pano['misssing_added'] + 1]
+            time = sum((point['dist']/(base_speed * point['speed']) for point in add_points))
+            video_items.append((dir_join('bynum/{:05d}.jpeg'.format(pano['if'])), time))
+            i = i + 1 + pano['misssing_added']
+            
+        
+        #video_items = [(dir_join('bynum/{:05d}.jpeg'.format(i)), pano['dist']/(base_speed * pano['speed']))
+        #               for i, pano in enumerate(filtered_panos)]
+        #video.video(video_items)
+        
+        
+        video_positions = []
+        video_time = 0
+        dist = 0
+        for i, point in enumerate(panos_with_missing):
+            if i % 10 == 0 :
+                video_positions.append((round(video_time, 2), dist, point['lat'], point['lng'], point['smooth_elv2']))
+            video_time += point['dist']/(base_speed * point['speed'])
+            dist += point['dist']
+        
+        web_info = dict(
+            title =  source['title'],
+            bounds = route['routes'][0]['bounds'],
+            #max_elv = max(panos_with_missing, key=lambda point: point['smooth_elv2'])['smooth_elv2'] + 10,
+            #min_elv = max(panos_with_missing, key=lambda point: point['smooth_elv2'])['smooth_elv2'] - 10,
+            #min_elv = 0,
+            route_points = points,
+            video_points = video_positions,
+        )
+
     finally:
         with DelayedKeyboardInterrupt():
             logging.info('Saving panos.json')
@@ -382,6 +441,15 @@ try:
                 w.writerow(fields)
                 for i, pano in enumerate(filtered_panos):
                     w.writerow([i] + [pano.get(field, '') for field in fields[1:]])
+                
+            logging.info('Saving video_items.json')
+            with open(dir_join('video_items.json'), 'w') as f:
+                json_dump_list(video_items, f)
+            
+            logging.info('Saving web_info.json')
+            with open(dir_join('web_info.json'), 'w') as f:
+                json.dump(web_info, f)
+                
     
     logging.info("Downloading frames")
     if os.path.exists(dir_join('bynum')):
@@ -419,55 +487,7 @@ try:
         os.link(path, dir_join('byid/{:05d}-{}-{:06d}.jpeg'.format(pano['i'], pano['id'], pano['if'])))
     
     
-    base_speed = 100000/(10*60)  # m/s
-    video_items = []
-    prev_add_points = []
-    i = 0
-    #import pudb; pudb.set_trace()
-    
-    while i < len(panos_with_missing):
-        pano = panos_with_missing[i]
-        add_points = []
-        while i < len(panos_with_missing) - 1 and 'id' not in panos_with_missing[i + 1]:
-            i += 1
-            add_points.append(panos_with_missing[i])
-        all_points = prev_add_points[round(len(prev_add_points) / 2):] + [pano] + add_points[:round(len(add_points) / 2)]
-        time = sum((point['dist']/(base_speed * point['speed']) for point in all_points))
-        video_items.append((dir_join('bynum/{:05d}.jpeg'.format(pano['if'])), time))
-        i += 1
-        prev_add_points = add_points
-    #video_items = [(dir_join('bynum/{:05d}.jpeg'.format(i)), pano['dist']/(base_speed * pano['speed']))
-    #               for i, pano in enumerate(filtered_panos)]
-    #video.video(video_items)
-    logging.info('Saving video_items.json')
-    with open(dir_join('video_items.json'), 'w') as f:
-        json_dump_list(video_items, f)
-    
-    
-    video_positions = []
-    video_time = 0
-    dist = 0
-    for i, point in enumerate(panos_with_missing):
-        if i % 10 == 0 :
-            video_positions.append((round(video_time, 2), dist, point['lat'], point['lng'], point['smooth_elv2']))
-        video_time += point['dist']/(base_speed * point['speed'])
-        dist += point['dist']
-    logging.info('Saving video_positions.json')
-    with open(dir_join('video_positions.json'), 'w') as f:
-        json_dump_list(video_positions, f)
-    
-    web_info = dict(
-        title =  source['title'],
-        bounds = route['routes'][0]['bounds'],
-        max_elv = max(panos_with_missing, key=lambda point: point['smooth_elv2'])['smooth_elv2'] + 10,
-        #min_elv = max(panos_with_missing, key=lambda point: point['smooth_elv2'])['smooth_elv2'] - 10,
-        min_elv = 0,
-        route_points = points,
-        video_points = video_positions,
-    )
-    logging.info('Saving web_info.json')
-    with open(dir_join('web_info.json'), 'w') as f:
-        json.dump(web_info, f)
+
     
 except KeyboardInterrupt:
     logging.error('KeyboardInterrupt')
