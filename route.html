@@ -50,8 +50,11 @@ function binarySearchClosest(arr, searchElement) {
 
 window.onload = function() {
     route = window.location.search.slice(1)
-    var video = document.getElementById("video");
-    video.src = 'routes/' + route + '/video.webm'
+    var $video = $('#video')
+    var video = $video[0]
+    $video.append('<source src="routes/' + route + '/video.mp4" id="mp4_src" type="video/mp4;codecs=avc1.4D401E">')
+    $video.append('<source src="routes/' + route + '/video.webm" id="webm_src" type="video/webm;codecs=vp8">')
+  
     $.ajax({ url: 'routes/' + route + "/web_info.json",
       dataType: 'json',
       success: function (data) {
@@ -60,7 +63,6 @@ window.onload = function() {
           zoom:12,
           //mapTypeId: google.maps.MapTypeId.TERRAIN
           streetViewControl: false
-          
         };
         var map = new google.maps.Map(document.getElementById('map-canvas'), mapOptions);
         var route = data['route_points']
@@ -117,7 +119,7 @@ window.onload = function() {
             },
             yAxis: {
                 title: {text: null},
-                min: 0
+                endOnTick: false
             },
             series: [{
                 name: 'Elevation',
@@ -146,11 +148,11 @@ window.onload = function() {
                     width: '2' 
                  })
         });
+        
+        map.fitBounds(bounds);
 
       }
     });  
-    
-    
     
 }
     </script>
@@ -178,7 +180,10 @@ window.onload = function() {
 
 <body>
 
-<video id="video"  controls autobuffer preload></video>
+
+<video id="video"  controls autobuffer preload>
+
+</video>
 <div id="map-canvas"></div>
 <div id="elevation"></div>
 </body>
