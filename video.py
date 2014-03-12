@@ -15,18 +15,9 @@ def video(items, location):
     mainloop = GObject.MainLoop()
     
     pipeline = Gst.parse_launch(
-        'appsrc name=src block=true caps="image/jpeg,framerate=30/1" ! '
+        'appsrc name=src block=true caps="image/jpeg,framerate=30/1,width=640,height=480" ! '
         'jpegdec ! '
-        #'progressreport update-freq=1 ! '
-        'videoconvert ! '
-        #'videorate ! '
-        #'timeoverlay text=\"Stream time:\" shaded-background=true ! '
-        #'ffmpegcolorspace ! '
-        'vp8enc end-usage="vbr" target-bitrate=4096000 ! webmmux ! '
-        #'x264enc quantizer=50 ! matroskamux ! '
-        #'jpegenc ! matroskamux ! '
-        #'autovideosink'
-        'filesink name=sink'
+        'matroskamux ! filesink name=sink  '
     )
     
     pipeline.get_by_name("sink").set_property("location", location)
@@ -83,6 +74,7 @@ def video(items, location):
     bus.connect("message", bus_message)
     
     pipeline.set_state(Gst.State.PLAYING)
+    Gst.debug_bin_to_dot_file(pipeline, Gst.DebugGraphDetails.ALL, 'debug')
     mainloop.run()
 
 
@@ -107,5 +99,5 @@ if __name__ == '__main__':
     with open(dir_join('video_items.json'), 'r') as f:
         video_items = json.load(f)
     
-    video(video_items, dir_join('video.webm'))
+    video(video_items, dir_join('video.mkv'))
 
