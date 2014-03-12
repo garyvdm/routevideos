@@ -112,9 +112,15 @@ try:
         with open(dir_join('route.json'), 'w') as f:
             json.dump(route, f, indent=2)
 
-    steps = list(itertools.chain(*(leg['steps'] for leg in route['routes'][0]['legs'])))
-    step_points = (gpolyline.decode(step['polyline']['points']) for step in steps)
-    points = list(itertools.chain(*(points if i == 0 else points[1:] for i, points in enumerate(step_points))))
+    if os.path.exists(dir_join('route_points.json')):
+        logging.info('loading route_points.json')
+        with open(dir_join('route_points.json'), 'r') as f:
+            points = json.load(f)
+    else:
+        steps = list(itertools.chain(*(leg['steps'] for leg in route['routes'][0]['legs'])))
+        step_points = (gpolyline.decode(step['polyline']['points']) for step in steps)
+        points = list(itertools.chain(*(points if i == 0 else points[1:] for i, points in enumerate(step_points))))
+    
     with DelayedKeyboardInterrupt():
         logging.info('Saving route_points.json')
         with open(dir_join('route_points.json'), 'w') as f:
