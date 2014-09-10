@@ -1,28 +1,3 @@
-<!DOCTYPE html>
-
-<html>
-<head>
-    <title>Route viewer</title>
-    <meta name="viewport" content="initial-scale=1.0, user-scalable=no">
-    <meta charset="utf-8">
-<script type="text/javascript">
-
-  var _gaq = _gaq || [];
-  _gaq.push(['_setAccount', 'UA-48509111-1']);
-  _gaq.push(['_trackPageview']);
-
-  (function() {
-    var ga = document.createElement('script'); ga.type = 'text/javascript'; ga.async = true;
-    ga.src = ('https:' == document.location.protocol ? 'https://ssl' : 'http://www') + '.google-analytics.com/ga.js';
-    var s = document.getElementsByTagName('script')[0]; s.parentNode.insertBefore(ga, s);
-  })();
-
-</script>
-    <script src="https://maps.googleapis.com/maps/api/js?v=3.exp&sensor=false"></script>
-    <script src="http://code.jquery.com/jquery-2.1.0.min.js"></script>
-    <script src="http://code.highcharts.com/highcharts.js"></script>
-    <script>
-
 function binarySearchClosest(arr, searchElement) {
 
   var minIndex = 0;
@@ -49,13 +24,7 @@ function binarySearchClosest(arr, searchElement) {
 }
 
 window.onload = function() {
-    route = window.location.search.slice(1)
-    var $video = $('#video')
-    var video = $video[0]
-    $video.append('<source src="routes/' + route + '/video.mp4" id="mp4_src" type="video/mp4;codecs=avc1.4D401E">')
-    $video.append('<source src="routes/' + route + '/video.webm" id="webm_src" type="video/webm;codecs=vp8">')
-  
-    $.ajax({ url: 'routes/' + route + "/web_info.json",
+    $.ajax({ url: "web_info.json",
       dataType: 'json',
       success: function (data) {
         document.title = data['title'];
@@ -130,7 +99,7 @@ window.onload = function() {
         var $chart = $elevation.highcharts(elv_options);
         var axis = Highcharts.charts[$chart.data('highchartsChart')].xAxis[0];
         
-        video.addEventListener('timeupdate', function(e) {
+        $('#video')[0].addEventListener('timeupdate', function(e) {
             var i
             if (video.currentTime == 0) 
                 i = 0
@@ -155,36 +124,3 @@ window.onload = function() {
     });  
     
 }
-    </script>
-    <style>
-      html, body {
-        height: 100%;        
-        margin: 0px;
-        padding: 0px
-      }
-      
-      #map-canvas {
-        height: 80%;
-      }
-      
-      #video{
-        float: left;
-        height: 80%;
-      }
-      
-      #elevation{
-        height: 20%;
-      }
-    </style>
-</head>
-
-<body>
-
-
-<video id="video"  controls autobuffer preload>
-
-</video>
-<div id="map-canvas"></div>
-<div id="elevation"></div>
-</body>
-</html>

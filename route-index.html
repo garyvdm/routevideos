@@ -1,0 +1,56 @@
+<!DOCTYPE html>
+
+<html>
+<head>
+    <title>Wilro Lions Cycle Challenge 114km</title>
+    <meta name="viewport" content="initial-scale=1.0, user-scalable=no">
+    <meta name="description" content="Route video, map and elevation profile for Wilro Lions Cycle Challenge 114km.">
+    <meta charset="utf-8">
+<script type="text/javascript">
+
+  var _gaq = _gaq || [];
+  _gaq.push(['_setAccount', 'UA-48509111-1']);
+  _gaq.push(['_trackPageview']);
+
+  (function() {
+    var ga = document.createElement('script'); ga.type = 'text/javascript'; ga.async = true;
+    ga.src = ('https:' == document.location.protocol ? 'https://ssl' : 'http://www') + '.google-analytics.com/ga.js';
+    var s = document.getElementsByTagName('script')[0]; s.parentNode.insertBefore(ga, s);
+  })();
+
+</script>
+    <script src="https://maps.googleapis.com/maps/api/js?v=3.exp&sensor=false"></script>
+    <script src="http://code.jquery.com/jquery-2.1.0.min.js"></script>
+    <script src="http://code.highcharts.com/highcharts.js"></script>
+    <script src="/route.js"></script>
+    </script>
+    <style>
+      html, body {
+        height: 100%;        
+        margin: 0px;
+        padding: 0px
+      }
+      
+      #map-canvas {
+        height: 80%;
+      }
+      
+      #video{
+        float: left;
+        height: 80%;
+      }
+      
+      #elevation{
+        height: 20%;
+      }
+    </style>
+</head>
+<body>
+<video id="video"  controls autobuffer preload>
+    <source src="video.mp4" type="video/mp4;codecs=avc1.4D401E">
+    <source src="video.webm" type="video/webm;codecs=vp8">
+</video>
+<div id="map-canvas"></div>
+<div id="elevation"></div>
+</body>
+</html>
