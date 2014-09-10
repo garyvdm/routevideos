@@ -178,11 +178,13 @@ try:
             else:
                 last_pano = None
                 last_point = points_indexed[0]
-    
+
+            #logging.debug('last_pano: {}'.format(last_pano))    
             while True:
                 #if len(panos) >= 500:
                 #    break
                 if last_pano is None:
+                    
                     for point in points_indexed[last_point[2]:]:
                         logging.debug('Get for ({},{}) {}'.format(*point))
                         pano_data = requests.get(
@@ -235,7 +237,7 @@ try:
                     if location['panoId'] not in pano_ids:
                         smallest_dist, closest_point = get_closest_point(pano_lat, pano_lng, last_point)
         
-                        if smallest_dist > 20:
+                        if smallest_dist > 30:
                             logging.debug("Distance {} to nearest point too great for pano: {}"
                                           .format(smallest_dist, location['panoId']))
                             last_pano = None
@@ -432,7 +434,7 @@ try:
                 json_dump_list(panos, f)
             
             point_debug = [(pano['lat'], pano['lng'], '{} - {}'.format(pano['i'], i))
-                           for i, pano in list(enumerate(filtered_panos))[6000:]]
+                           for i, pano in list(enumerate(filtered_panos))[-500:]]
             logging.info('Saving point_debug.json')
             with open(dir_join('point_debug.json'), 'w') as f:
                 json_dump_list(point_debug, f)
