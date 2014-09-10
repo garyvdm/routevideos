@@ -148,12 +148,12 @@ try:
     def get_closest_point(lat, lng, last_point):
         smallest_dist = None
         closest_point = None
-        for point in points_indexed[last_point[2]:]:
+        for point in points_indexed[last_point[2]:last_point[2] + 30]:
             dist = geodesic.Inverse(point[0], point[1], lat, lng)['s12']
             if smallest_dist is None or dist < smallest_dist:
                 smallest_dist = dist
                 closest_point = point
-            if dist > smallest_dist and dist >= 20 and smallest_dist < 20:
+            if dist > smallest_dist and dist >= 30 and smallest_dist < 30:
                 break
         return (smallest_dist, closest_point)
 
@@ -164,6 +164,14 @@ try:
             panos = json.load(f)
     else:
         panos = []
+
+    if os.path.exists(dir_join('panos_data.json')):
+        logging.info('loading panos_data.json')
+        with open(dir_join('panos_data.json'), 'r') as f:
+            panos_data = json.load(f)
+    else:
+        panos_data = {}
+
     
     try:
         pano_ids = set([pano['id'] for pano in panos])
@@ -179,7 +187,7 @@ try:
                 last_pano = None
                 last_point = points_indexed[0]
 
-            #logging.debug('last_pano: {}'.format(last_pano))    
+            logging.debug('last_pano: {}'.format(last_pano))    
             while True:
                 #if len(panos) >= 500:
                 #    break
@@ -219,13 +227,15 @@ try:
             
                     if link_pano_id:
                         #logging.debug('Get for {}'.format(link_pano_id))
-                        pano_data = requests.get(
-                            'http://cbks0.googleapis.com/cbk',
-                            params={
-                                'output': 'json',
-                                'panoid': link_pano_id,
-                                'key': 'AIzaSyC74vPZz2tYpRuRWY7kZ8iaQ17Xam1-_-A',
-                            }).json()
+                        if link_pano_id not in panos_data:
+                            panos_data[link_pano_id] = requests.get(
+                                'http://cbks0.googleapis.com/cbk',
+                                params={
+                                    'output': 'json',
+                                    'panoid': link_pano_id,
+                                    'key': 'AIzaSyC74vPZz2tYpRuRWY7kZ8iaQ17Xam1-_-A',
+                                }).json()
+                        pano_data = panos_data[link_pano_id]
                     else:
                         last_pano = None
                         pano_data = None
@@ -260,6 +270,11 @@ try:
                         last_pano = None
         except KeyboardInterrupt:
             logging.error('KeyboardInterrupt')
+        finally:
+            with DelayedKeyboardInterrupt():
+                logging.info('Saving panos_data.json')
+                with open(dir_join('panos_data.json'), 'w') as f:
+                    json.dump(panos_data, f, sort_keys=True, indent=2)
         
         ################################################################################################################
         
