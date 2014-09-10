@@ -27,107 +27,117 @@
 window.onload = function() {
     route = window.location.search.slice(1)
     var mapOptions = {
-	zoom:13,
+        zoom:13,
     };
     var map = new google.maps.Map(document.getElementById('map-canvas'), mapOptions);
     var panorama = map.getStreetView();
     
     google.maps.event.addListener(panorama, 'pano_changed', function() {
-	var panoCell = document.getElementById('pano_cell');
-	panoCell.innerHTML = panorama.getPano();
+        var panoCell = document.getElementById('pano_cell');
+        panoCell.innerHTML = panorama.getPano();
     });
   
     google.maps.event.addListener(panorama, 'links_changed', function() {
-	var linksTable = document.getElementById('links_table');
-	while(linksTable.hasChildNodes()) {
-	    linksTable.removeChild(linksTable.lastChild);
-	};
-	var links =  panorama.getLinks();
-	for (var i in links) {
-	    var row = document.createElement('tr');
-	    linksTable.appendChild(row);
-	    var labelCell = document.createElement('td');
-	    labelCell.innerHTML = '<b>Link: ' + i + '</b>';
-	    var valueCell = document.createElement('td');
-	    valueCell.innerHTML = links[i].description + "<br>" + links[i].pano  + "<br>" + links[i].heading;
-	    linksTable.appendChild(labelCell);
-	    linksTable.appendChild(valueCell);
-	}
+        var linksTable = document.getElementById('links_table');
+        while(linksTable.hasChildNodes()) {
+            linksTable.removeChild(linksTable.lastChild);
+        };
+        var links =  panorama.getLinks();
+        for (var i in links) {
+            var row = document.createElement('tr');
+            linksTable.appendChild(row);
+            var labelCell = document.createElement('td');
+            labelCell.innerHTML = '<b>Link: ' + i + '</b>';
+            var valueCell = document.createElement('td');
+            valueCell.innerHTML = links[i].description + "<br>" + links[i].pano  + "<br>" + links[i].heading;
+            linksTable.appendChild(labelCell);
+            linksTable.appendChild(valueCell);
+        }
     });
   
     google.maps.event.addListener(panorama, 'position_changed', function() {
-	var positionCell = document.getElementById('position_cell');
-	positionCell.firstChild.nodeValue = panorama.getPosition() + '';
+        var positionCell = document.getElementById('position_cell');
+        positionCell.firstChild.nodeValue = panorama.getPosition() + '';
     });
   
     google.maps.event.addListener(panorama, 'pov_changed', function() {
-	var headingCell = document.getElementById('heading_cell');
-	var pitchCell = document.getElementById('pitch_cell');
-	headingCell.firstChild.nodeValue = panorama.getPov().heading + '';
-	pitchCell.firstChild.nodeValue = panorama.getPov().pitch + '';
+        var headingCell = document.getElementById('heading_cell');
+        var pitchCell = document.getElementById('pitch_cell');
+        headingCell.firstChild.nodeValue = panorama.getPov().heading + '';
+        pitchCell.firstChild.nodeValue = panorama.getPov().pitch + '';
     });
     
     
     $.ajax({ url: 'routes/' + route + "/web_info.json",
-	dataType: 'json',
+        dataType: 'json',
         success: function (data) {
             document.title = "DEBUG:" + data['title'];
             var route = data['route_points']
             var path = new Array()
             for (i=0; i<route.length; i++){
-		point = route[i]
+                point = route[i]
                 path.push(new google.maps.LatLng(point[0], point[1]))
             }
-	    new google.maps.Polyline({
-		path: path,
-		geodesic: true,
-		strokeColor: '#0000FF',
-		strokeOpacity: 1.0,
-		strokeWeight: 2
-	    }).setMap(map);
-	    bounds = new google.maps.LatLngBounds(
-		new google.maps.LatLng(data['bounds']['southwest']['lat'], data['bounds']['southwest']['lng']),
-		new google.maps.LatLng(data['bounds']['northeast']['lat'], data['bounds']['northeast']['lng']))
-	    map.fitBounds(bounds);
-	}
+            new google.maps.Polyline({
+                path: path,
+                geodesic: true,
+                strokeColor: '#0000FF',
+                strokeOpacity: 1.0,
+                strokeWeight: 2
+            }).setMap(map);
+            bounds = new google.maps.LatLngBounds(
+                new google.maps.LatLng(data['bounds']['southwest']['lat'], data['bounds']['southwest']['lng']),
+                new google.maps.LatLng(data['bounds']['northeast']['lat'], data['bounds']['northeast']['lng']))
+            map.fitBounds(bounds);
+        }
     });
-    $.ajax({ url: "routes/" + route + "/point_debug.json",
-      dataType: 'json',
-      success: function (data) {
-	for (i=0; i<data.length; i++){
-	  point = data[i]
-	  var marker = new google.maps.Marker({
-	      position: new google.maps.LatLng(point[0], point[1]),
-	      map: map,
-	      title: point[2].toString(),
-	      icon: {
-		path: google.maps.SymbolPath.CIRCLE,
-		scale: 1
-	      }
-	  });
-	}
-      }
-    });
+    var markers = new Array();
+    function load_point_debug() {
+      $.ajax({ url: "routes/" + route + "/point_debug.json",
+        dataType: 'json',
+        success: function (data) {
+          for (i=0; i<markers.length; i++) {
+            markers[i].setMap(null);
+          }
+          markers = new Array();
+          for (i=0; i<data.length; i++){
+            point = data[i]
+            markers.push(new google.maps.Marker({
+                position: new google.maps.LatLng(point[0], point[1]),
+                map: map,
+                title: point[2].toString(),
+                icon: {
+                  path: google.maps.SymbolPath.CIRCLE,
+                  scale: 1
+                }
+            }));
+          }
+        }
+      });
+    }
+    load_point_debug();
+    $("#refresh").click(load_point_debug);
 };
 
     </script>
   </head>
   <body>
     <div id="panel">
+      <button id="refresh">Refresh</button>
       <table>
-	<tr>
-	  <td><b>Position</b></td><td id="position_cell">&nbsp;</td>
-	</tr>
-	<tr>
-	  <td><b>POV Heading</b></td><td id="heading_cell">270</td>
-	</tr>
-	<tr>
-	  <td><b>POV Pitch</b></td><td id="pitch_cell">0.0</td>
-	</tr>
-	<tr>
-	  <td><b>Pano ID</b></td><td id="pano_cell">&nbsp;</td>
-	</tr>
-	<table id="links_table"></table>
+        <tr>
+          <td><b>Position</b></td><td id="position_cell">&nbsp;</td>
+        </tr>
+        <tr>
+          <td><b>POV Heading</b></td><td id="heading_cell">270</td>
+        </tr>
+        <tr>
+          <td><b>POV Pitch</b></td><td id="pitch_cell">0.0</td>
+        </tr>
+        <tr>
+          <td><b>Pano ID</b></td><td id="pano_cell">&nbsp;</td>
+        </tr>
+        <table id="links_table"></table>
       </table>
     </div>
     <div id="map-canvas"></div>

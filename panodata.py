@@ -148,7 +148,7 @@ try:
     def get_closest_point(lat, lng, last_point):
         smallest_dist = None
         closest_point = None
-        for point in points_indexed[last_point[2]:last_point[2] + 30]:
+        for point in points_indexed[last_point[2]:last_point[2] + 500]:
             dist = geodesic.Inverse(point[0], point[1], lat, lng)['s12']
             if smallest_dist is None or dist < smallest_dist:
                 smallest_dist = dist
@@ -265,6 +265,12 @@ try:
                             pano_ids.add(location['panoId'])
                             last_pano = pano
                             logging.info("{description} ({lat},{lng}) {i}".format(**pano))
+
+                            with DelayedKeyboardInterrupt():
+                                point_debug = [(pano['lat'], pano['lng'], '{} - {}'.format(pano['i'], i))
+                                               for i, pano in list(enumerate(panos))[-500:]]
+                                with open(dir_join('point_debug.json'), 'w') as f:
+                                    json_dump_list(point_debug, f)
                     else:
                         last_point = points_indexed[last_point[2] + 1]
                         last_pano = None
