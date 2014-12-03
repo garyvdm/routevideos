@@ -73,6 +73,11 @@ class DelayedKeyboardInterrupt(object):
         if self.signal_received:
             self.old_handler(*self.signal_received)
 
+def deg_wrap_to_closest(deg, to_deg):
+    up = deg + 360
+    down = deg - 360
+    return min(deg, up, down, key=lambda x: abs(to_deg - x))
+
 try:
     
     parser = argparse.ArgumentParser()
@@ -91,6 +96,7 @@ try:
     with open(dir_join('source.yaml'), 'r') as f:
         source = yaml.load(f)
 
+    session = requests.Session()
 
     if os.path.exists(dir_join('route.json')):
         logging.info('loading route.json')
@@ -99,7 +105,7 @@ try:
     else:
         logging.info('Fetching route')
         waypoints = '|'.join(('via:{}'.format(latlng_urlstr(wp)) for wp in source['route_request']['waypoints']))
-        route = requests.get(
+        route = session.get(
             'https://maps.googleapis.com/maps/api/directions/json',
             params={
                 'origin': latlng_urlstr(source['route_request']['origin']),
@@ -148,12 +154,12 @@ try:
     def get_closest_point(lat, lng, last_point):
         smallest_dist = None
         closest_point = None
-        for point in points_indexed[last_point[2]:last_point[2] + 500]:
+        for point in points_indexed[last_point[2]:last_point[2] + 200]:
             dist = geodesic.Inverse(point[0], point[1], lat, lng)['s12']
             if smallest_dist is None or dist < smallest_dist:
                 smallest_dist = dist
                 closest_point = point
-            if dist > smallest_dist and dist >= 30 and smallest_dist < 30:
+            if dist > smallest_dist and dist >= 50 and smallest_dist < 30:
                 break
         return (smallest_dist, closest_point)
 
@@ -195,7 +201,7 @@ try:
                     
                     for point in points_indexed[last_point[2]:]:
                         logging.debug('Get for ({},{}) {}'.format(*point))
-                        pano_data = requests.get(
+                        pano_data = session.get(
                             'http://cbks0.googleapis.com/cbk',
                             params={
                                 'output': 'json',
@@ -214,9 +220,11 @@ try:
                         if last_point[2] == len(points_indexed) -1 :
                             break
                         next_point = points_indexed[last_point[2] + 1]
+                        #logging.debug((last_point[0], last_point[1],
+                        #                               next_point[0], next_point[1]))
                         yaw_to_next = geodesic.Inverse(last_point[0], last_point[1],
                                                        next_point[0], next_point[1])['azi1'] % 360
-                        yaw_diff = lambda item: (abs(item['yaw'] - yaw_to_next)) % 360
+                        yaw_diff = lambda item: abs(deg_wrap_to_closest(item['yaw'] - yaw_to_next, 0))
                         pano_link = min(last_pano['links'], key=yaw_diff)
             
                         if yaw_diff(pano_link) > 20:
@@ -228,7 +236,7 @@ try:
                     if link_pano_id:
                         #logging.debug('Get for {}'.format(link_pano_id))
                         if link_pano_id not in panos_data:
-                            panos_data[link_pano_id] = requests.get(
+                            panos_data[link_pano_id] = session.get(
                                 'http://cbks0.googleapis.com/cbk',
                                 params={
                                     'output': 'json',
@@ -268,7 +276,7 @@ try:
 
                             with DelayedKeyboardInterrupt():
                                 point_debug = [(pano['lat'], pano['lng'], '{} - {}'.format(pano['i'], i))
-                                               for i, pano in list(enumerate(panos))[-500:]]
+                                               for i, pano in list(enumerate(panos))[-200:]]
                                 with open(dir_join('point_debug.json'), 'w') as f:
                                     json_dump_list(point_debug, f)
                     else:
@@ -322,7 +330,7 @@ try:
             n = 256
             for i in range(0, len(panos_without_elevation), n):
                 polyline = gpolyline.encode_coords([(pano['point_lat'], pano['point_lng']) for pano in panos_without_elevation[i:i+n]])
-                elevations = requests.get(
+                elevations = session.get(
                     'https://maps.googleapis.com/maps/api/elevation/json',
                     params={
                         'sensor': 'false',
@@ -338,10 +346,6 @@ try:
 
         logging.info("Calculating yaws, yaw_deltas, and grads")
 
-        def deg_wrap_to_closest(deg, to_deg):
-            up = deg + 360
-            down = deg - 360
-            return min(deg, up, down, key=lambda x: abs(to_deg - x))
         
         #import pudb; pudb.set_trace()
         for pano, next_pano in zip(panos_with_missing[:-1], panos_with_missing[1:]):
@@ -494,7 +498,7 @@ try:
 
         if not os.path.exists(path):
             logging.info('{} {} {}'.format(path, pano['if'], pano['i']))
-            img = requests.get(
+            img = session.get(
                 'http://maps.googleapis.com/maps/api/streetview',
                 params={
                     'size': '640x480',
